@@ -1,0 +1,28 @@
+{
+  "name": "cnc-vps",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CNC VPS — kalkulator i generator G-kodu dla tokarki Haas SL-20T i frezarki Haas VF (PWA + Android)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "cap:sync": "npx cap sync android",
+    "cap:open": "npx cap open android"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0",
+    "vitest": "^3.0.0",
+    "vite-plugin-pwa": "^0.21.0"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/cli": "^7.0.0",
+    "@capacitor/filesystem": "^7.0.0",
+    "@capacitor/share": "^7.0.0"
+  }
+}
