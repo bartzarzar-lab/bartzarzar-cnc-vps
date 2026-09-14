@@ -2,6 +2,7 @@
 // Czyste funkcje: state → { lines:[], warnings:[], time:{...}, profile }.
 import { getMaterial } from './materials.js';
 import { rpm as calcRpm, metricThread, threadPasses, ascii } from './calc.js';
+import { getPost, withDefaults, tpl, finalize } from './posts.js';
 
 export const LATHE_TOOL_TYPES = [
   'Nóż zewn. zgrubny CNMG', 'Nóż wykończeniowy DCMT/CCMT', 'Nóż kopiujący VBMT',
@@ -183,10 +184,12 @@ export function profileRadius(segs, z, rStock) {
 }
 
 // ─── Generator ──────────────────────────────────────────────────────────────
-export function generateLathe(state) {
+export function generateLathe(state, postIn) {
   const L = [], W = [];
   const p = (...a) => L.push(a.join(''));
   const C = (t) => `(${ascii(t)})`;
+  const post = withDefaults(postIn || getPost(state.post, 'lathe', state.customPosts));
+  const K = post.codes, CY = post.cycles;
   const mat = getMaterial(state.material, state.customMaterials);
   const { d: D, l: LEN } = state.stock;
   const maxR = state.maxRpm || 4000;
@@ -198,14 +201,13 @@ export function generateLathe(state) {
   let time = 0, tcs = 0, lastTool = -1, seq = 100;
   const nAt = (vc, dia) => calcRpm(vc, Math.max(dia, 1), maxR);
 
-  p(`O${pn} ${C('HAAS SL-20T -- ' + mat.name)}`);
-  if (state.title) p(C(state.title));
-  p(C(`SUROWKA: FI${D} x L${LEN} mm`));
-  p(C(`CNC VPS ${new Date().toISOString().slice(0, 10)} / G99 / MM / SREDNICOWO`));
-  p('');
-  p('G21 G18 G40 G80 ' + C('mm / plaszczyzna ZX / brak komp.'));
-  p('G99 ' + C('posuw mm/obr'));
-  p('G28 U0. W0. ' + C('powrot do ref.'));
+  tpl(post.header, {
+    START: post.startChar, PROG: pn, HEAD: ascii(post.name + ' -- ' + mat.name),
+    TITLE: state.title ? ascii(state.title) : '',
+    STOCK: ascii(`SUROWKA: FI${D} x L${LEN} mm`),
+    GEN: ascii(`CNC VPS ${new Date().toISOString().slice(0, 10)} / ${K.feedRev} / MM / SREDNICOWO`),
+    MAXRPM: maxR
+  }).forEach((l) => p(l));
   if (state.tailstock) p('M23 ' + C('konik wysun'));
 
   state.ops.forEach((op, i) => {
@@ -215,27 +217,28 @@ export function generateLathe(state) {
     p('');
     p(C(`==== OP ${i + 1}: ${LATHE_OPS[op.type].full} ====`));
     if (op.tool !== lastTool) {
-      if (lastTool !== -1) { p('M05'); p('M09'); p('G28 U0. W0.'); p('M01 ' + C('stop opcjonalny')); p(''); tcs++; }
-      p(C(`NARZEDZIE ${tStr(op.tool)} -- ${tName(op.tool)}`));
-      p(`G00 ${tStr(op.tool)}`);
-      p(`G50 S${maxR} ${C('max rpm')}`);
+      if (lastTool !== -1) { p(K.spinOff); if (cool) p(K.coolOff); p('G28 U0. W0.'); p(K.optStop + ' ' + C('stop opcjonalny')); p(''); tcs++; }
+      tpl(post.toolChange, {
+        TSTR: tStr(op.tool), TT: String(op.tool).padStart(2, '0'), MAXRPM: maxR,
+        TOOLDESC: ascii(tName(op.tool) || '?'), S: nAt(vc, D)
+      }).forEach((l) => p(l));
       lastTool = op.tool;
     }
     if (cool) p(cool + ' ' + C('chlodzenie'));
 
     switch (op.type) {
       case 'face': {
-        p(`G96 S${Math.round(vc)} M03 ${C('stala predkosc skrawania')}`);
+        p(`${K.css} S${Math.round(vc)} ${K.spinCW} ${C('stala predkosc skrawania')}`);
         const passes = Math.max(1, Math.ceil((op.cut || 0.5) / (op.ap || 0.5)));
         for (let k = 1; k <= passes; k++) {
           const z = -Math.min(op.cut, k * op.ap);
-          p(`G00 X${f3(D + 3)} Z${f3(z + 1.5)}`);
-          p(`G01 Z${f3(z)} F${f3(f * 2)}`);
+          p(`${K.rapid} X${f3(D + 3)} Z${f3(z + 1.5)}`);
+          p(`${K.lin} Z${f3(z)} F${f3(f * 2)}`);
           p(`X-1.5 F${f3(f)}`);
-          p(`G00 Z${f3(z + 1.5)}`);
+          p(`${K.rapid} Z${f3(z + 1.5)}`);
           time += (D / 2 + 3) / (f * nAt(vc, D / 2)) + 0.05;
         }
-        p(`G00 X${f3(D + 5)} Z5.`);
+        p(`${K.rapid} X${f3(D + 5)} Z5.`);
         break;
       }
       case 'rough': {
@@ -243,12 +246,12 @@ export function generateLathe(state) {
         op._ns = ns; op._ne = ne;
         const segs = expandProfile(op.profile);
         p(C(`G71 profil ${op.profile.length} pkt  ap${op.ap}  f${f3(f)}  Vc${Math.round(vc)}`));
-        p(`G96 S${Math.round(vc)} M03`);
-        p(`G00 X${f3(D + 2)} Z2.`);
-        p(`G71 U${f3(op.ap)} R0.5`);
-        p(`G71 P${ns} Q${ne} U${f3(op.sx)} W${f3(op.sz)} F${f3(f)}`);
-        emitProfile(p, segs, ns, ne, f, D, false);
-        p(`G00 X${f3(D + 5)} Z5.`);
+        p(`${K.css} S${Math.round(vc)} ${K.spinCW}`);
+        p(`${K.rapid} X${f3(D + 2)} Z2.`);
+        p(`${CY.rough} U${f3(op.ap)} R0.5`);
+        p(`${CY.rough} P${ns} Q${ne} U${f3(op.sx)} W${f3(op.sz)} F${f3(f)}`);
+        emitProfile(p, segs, ns, ne, f, D, false, K);
+        p(`${K.rapid} X${f3(D + 5)} Z5.`);
         const xmin = Math.min(...op.profile.map((q) => q.x));
         const passes = Math.ceil((D - xmin) / 2 / op.ap);
         const zlen = Math.abs(Math.min(...op.profile.map((q) => q.z)));
@@ -259,10 +262,10 @@ export function generateLathe(state) {
         const src = state.ops.find((o) => o.id === op.ref) || state.ops.slice(0, i).reverse().find((o) => o.type === 'rough');
         if (!src || !src._ns) { W.push(`OP ${i + 1}: G70 bez wcześniejszego G71`); p(C('!!! brak G71 dla G70')); break; }
         p(C(`G70 profil N${src._ns}-N${src._ne}`));
-        p(`G96 S${Math.round(vc)} M03`);
-        p(`G00 X${f3(D + 2)} Z2.`);
-        p(`G70 P${src._ns} Q${src._ne} F${f3(f)}`);
-        p(`G00 X${f3(D + 5)} Z5.`);
+        p(`${K.css} S${Math.round(vc)} ${K.spinCW}`);
+        p(`${K.rapid} X${f3(D + 2)} Z2.`);
+        p(`${CY.finish} P${src._ns} Q${src._ne} F${f3(f)}`);
+        p(`${K.rapid} X${f3(D + 5)} Z5.`);
         const zlen = Math.abs(Math.min(...src.profile.map((q) => q.z)));
         time += (zlen + D / 2) / (f * nAt(vc, D / 2)) + 0.1;
         break;
@@ -270,24 +273,24 @@ export function generateLathe(state) {
       case 'turn': {
         const passes = Math.max(1, Math.ceil((D - op.x) / 2 / (op.ap || 2)));
         p(C(`toczenie X${op.x} Z${op.z}  ${passes} przejsc`));
-        p(`G96 S${Math.round(vc)} M03`);
+        p(`${K.css} S${Math.round(vc)} ${K.spinCW}`);
         for (let k = 1; k <= passes; k++) {
           const x = Math.max(op.x, D - 2 * k * op.ap);
-          p(`G00 X${f3(x)} Z2.`);
-          p(`G01 Z${f3(op.z)} F${f3(f)}`);
-          p(`G00 U1. Z2.`);
+          p(`${K.rapid} X${f3(x)} Z2.`);
+          p(`${K.lin} Z${f3(op.z)} F${f3(f)}`);
+          p(`${K.rapid} U1. Z2.`);
           time += Math.abs(op.z - 2) / (f * nAt(vc, x));
         }
-        p(`G00 X${f3(D + 5)}`);
+        p(`${K.rapid} X${f3(D + 5)}`);
         break;
       }
       case 'taper': {
         p(C(`stozek X${op.x1} Z${op.z1} -> X${op.x2} Z${op.z2}`));
-        p(`G96 S${Math.round(vc)} M03`);
-        p(`G00 X${f3(op.x1 + 1)} Z${f3(op.z1 + 2)}`);
-        p(`G01 X${f3(op.x1)} Z${f3(op.z1)} F${f3(f * 2)}`);
+        p(`${K.css} S${Math.round(vc)} ${K.spinCW}`);
+        p(`${K.rapid} X${f3(op.x1 + 1)} Z${f3(op.z1 + 2)}`);
+        p(`${K.lin} X${f3(op.x1)} Z${f3(op.z1)} F${f3(f * 2)}`);
         p(`X${f3(op.x2)} Z${f3(op.z2)} F${f3(f)}`);
-        p(`G00 X${f3(D + 5)}`);
+        p(`${K.rapid} X${f3(D + 5)}`);
         time += Math.hypot((op.x2 - op.x1) / 2, op.z2 - op.z1) / (f * nAt(vc, (op.x1 + op.x2) / 2));
         W.push(`OP ${i + 1}: stożek — jedno przejście; dla dużego naddatku użyj G71 z profilem`);
         break;
@@ -296,15 +299,15 @@ export function generateLathe(state) {
         const ns = seq, ne = seq + 10; seq += 100;
         p(C(`wytaczanie FI${op.dbore} gl.${op.depth} z otworu FI${op.dpre}`));
         if (op.dpre >= op.dbore) W.push(`OP ${i + 1}: otwór wstępny ≥ średnicy wytaczania`);
-        p(`G96 S${Math.round(vc)} M03`);
-        p(`G00 X${f3(op.dpre - 1)} Z2.`);
-        p(`G71 U${f3(op.ap)} R0.3`);
-        p(`G71 P${ns} Q${ne} U-${f3(op.sx)} W${f3(op.sz)} F${f3(f)}`);
+        p(`${K.css} S${Math.round(vc)} ${K.spinCW}`);
+        p(`${K.rapid} X${f3(op.dpre - 1)} Z2.`);
+        p(`${CY.rough} U${f3(op.ap)} R0.3`);
+        p(`${CY.rough} P${ns} Q${ne} U-${f3(op.sx)} W${f3(op.sz)} F${f3(f)}`);
         p(`N${ns} G00 X${f3(op.dbore)}`);
-        p(`G01 Z${f3(-op.depth)} F${f3(f)}`);
+        p(`${K.lin} Z${f3(-op.depth)} F${f3(f)}`);
         p(`X${f3(op.dpre - 1)}`);
         p(`N${ne} G00 Z2.`);
-        p(`G00 X${f3(op.dpre - 1)} Z5.`);
+        p(`${K.rapid} X${f3(op.dpre - 1)} Z5.`);
         const passes = Math.ceil((op.dbore - op.dpre) / 2 / op.ap);
         time += (passes * (op.depth + 3)) / (f * nAt(vc, op.dbore)) + passes * 0.03;
         break;
@@ -313,12 +316,12 @@ export function generateLathe(state) {
         const n = nAt(vc, D);
         const tw = (tools[op.tool - 1] || {}).w || 3;
         p(C(`rowek X${op.xb} Z${op.z} szer.${op.w}  plytka ${tw}mm`));
-        p(`G97 S${n} M03 ${C('stale rpm')}`);
-        p(`G00 X${f3(D + 2)} Z${f3(op.z)}`);
-        p('G75 R0.5');
-        if (op.w > tw) p(`G75 X${f3(op.xb)} Z${f3(op.z - op.w + tw)} P${Math.round(Math.min(op.w, 2) * 1000)} Q${Math.round(tw * 0.8 * 1000)} F${f3(f)}`);
-        else p(`G75 X${f3(op.xb)} P${Math.round(Math.min(op.w, 2) * 1000)} F${f3(f)}`);
-        p(`G00 X${f3(D + 5)}`);
+        p(`${K.rpmConst} S${n} ${K.spinCW} ${C('stale rpm')}`);
+        p(`${K.rapid} X${f3(D + 2)} Z${f3(op.z)}`);
+        p(`${CY.groove} R0.5`);
+        if (op.w > tw) p(`${CY.groove} X${f3(op.xb)} Z${f3(op.z - op.w + tw)} P${Math.round(Math.min(op.w, 2) * 1000)} Q${Math.round(tw * 0.8 * 1000)} F${f3(f)}`);
+        else p(`${CY.groove} X${f3(op.xb)} P${Math.round(Math.min(op.w, 2) * 1000)} F${f3(f)}`);
+        p(`${K.rapid} X${f3(D + 5)}`);
         time += ((D - op.xb) / 2) * Math.ceil(op.w / tw) / (f * n) * 1.5;
         break;
       }
@@ -330,17 +333,17 @@ export function generateLathe(state) {
         const zEnd = -(op.zlen + op.pitch * 1.5);
         p(C(`gwint ${op.internal ? 'wewn.' : 'zewn.'} M${op.dnom}x${op.pitch} d_min=${f3(th.dMinor)} ${passes} przejsc`));
         p('(! G97 STALE RPM -- wylacz G96 !)');
-        p(`G97 S${n} M03`);
+        p(`${K.rpmConst} S${n} ${K.spinCW}`);
         if (op.internal) {
-          p(`G00 X${f3(th.dMinor - 2)} Z${f3(op.pitch * 2)}`);
-          p(`G76 P${pp}0060 Q50 R0.03`);
-          p(`G76 X${f3(op.dnom)} Z${f3(zEnd)} P${th.pUm} Q${th.firstCutUm} F${f4(op.pitch)}`);
+          p(`${K.rapid} X${f3(th.dMinor - 2)} Z${f3(op.pitch * 2)}`);
+          p(`${CY.thread} P${pp}0060 Q50 R0.03`);
+          p(`${CY.thread} X${f3(op.dnom)} Z${f3(zEnd)} P${th.pUm} Q${th.firstCutUm} F${f4(op.pitch)}`);
         } else {
-          p(`G00 X${f3(op.dnom + 3)} Z${f3(op.pitch * 2)}`);
-          p(`G76 P${pp}0060 Q50 R0.05`);
-          p(`G76 X${f3(th.dMinor)} Z${f3(zEnd)} P${th.pUm} Q${th.firstCutUm} F${f4(op.pitch)}`);
+          p(`${K.rapid} X${f3(op.dnom + 3)} Z${f3(op.pitch * 2)}`);
+          p(`${CY.thread} P${pp}0060 Q50 R0.05`);
+          p(`${CY.thread} X${f3(th.dMinor)} Z${f3(zEnd)} P${th.pUm} Q${th.firstCutUm} F${f4(op.pitch)}`);
         }
-        p(`G00 X${f3(D + 5)} Z5.`);
+        p(`${K.rapid} X${f3(D + 5)} Z5.`);
         time += ((passes + 2) * (Math.abs(zEnd) + op.pitch * 2)) / (op.pitch * n) + (passes + 2) * 0.03;
         if (n * op.pitch > 3000) W.push(`OP ${i + 1}: Vf gwintu ${Math.round(n * op.pitch)} mm/min — zmniejsz RPM`);
         break;
@@ -348,11 +351,11 @@ export function generateLathe(state) {
       case 'drill': {
         const n = nAt(vc, op.fi);
         p(C(`wiercenie FI${op.fi} gl.${op.depth} peck ${op.peck} (${op.cycle})`));
-        p(`G97 S${n} M03`);
+        p(`${K.rpmConst} S${n} ${K.spinCW}`);
         p('G00 X0. Z5.');
-        if (op.cycle === 'G74') p(`G74 R0.5`), p(`G74 Z${f3(-op.depth)} Q${Math.round(op.peck * 1000)} F${f3(f)}`);
-        else p(`G83 Z${f3(-op.depth)} R2. Q${Math.round(op.peck * 1000)} F${f3(f)}`);
-        p('G80');
+        if (op.cycle === 'G74') { p(`${CY.chip} R0.5`); p(`${CY.chip} Z${f3(-op.depth)} Q${Math.round(op.peck * 1000)} F${f3(f)}`); }
+        else p(`${CY.peck} Z${f3(-op.depth)} R2. Q${Math.round(op.peck * 1000)} F${f3(f)}`);
+        p(CY.off);
         p('G00 Z10.');
         time += (op.depth / (f * n)) * (1 + Math.ceil(op.depth / Math.max(op.peck, 1)) * 0.15);
         break;
@@ -361,39 +364,35 @@ export function generateLathe(state) {
         const n = Math.min(nAt(vc, D), 1500);
         const tw = (tools[op.tool - 1] || {}).w || op.w || 3;
         p(C(`odcinanie Z${op.z} plytka ${tw}mm`));
-        p(`G50 S${Math.min(1500, maxR)} ${C('limit rpm przy odcinaniu')}`);
-        p(`G96 S${Math.round(vc)} M03`);
-        p(`G00 X${f3(D + 2)} Z${f3(op.z - tw)}`);
-        p(`G01 X${f3(D * 0.4)} F${f3(f)}`);
+        p(`${K.rpmLimit} S${Math.min(1500, maxR)} ${C('limit rpm przy odcinaniu')}`);
+        p(`${K.css} S${Math.round(vc)} ${K.spinCW}`);
+        p(`${K.rapid} X${f3(D + 2)} Z${f3(op.z - tw)}`);
+        p(`${K.lin} X${f3(D * 0.4)} F${f3(f)}`);
         p(`X${f3(D * 0.15)} F${f3(f * 0.6)}`);
         p(`X-0.5 F${f3(f * 0.3)}`);
-        p(`G00 X${f3(D + 10)}`);
-        p(`G50 S${maxR}`);
+        p(`${K.rapid} X${f3(D + 10)}`);
+        p(`${K.rpmLimit} S${maxR}`);
         time += (D / 2 + 3) / (f * n) * 2;
         break;
       }
     }
   });
   p('');
-  p('(==== KONIEC PROGRAMU ====)');
-  p('M05'); p('M09');
   if (state.tailstock) p('M24 ' + C('konik cofnij'));
-  p('G28 U0. W0.');
-  p('M30');
-  p('%');
-  return { lines: L, warnings: W, time: { cut: time, toolChanges: tcs, total: time + tcs * 0.25 + 0.5 } };
+  tpl(post.footer, { COOLOFF: cool ? K.coolOff : '', END: post.endChar }).forEach((l) => p(l));
+  return { lines: finalize(L, post), warnings: W, post: { id: post.id, name: post.name }, time: { cut: time, toolChanges: tcs, total: time + tcs * 0.25 + 0.5 } };
 }
 
-function emitProfile(p, segs, ns, ne, f, D, internal) {
+function emitProfile(p, segs, ns, ne, f, D, internal, K) {
   if (!segs.length) return;
   const s0 = segs[0];
-  p(`N${ns} G00 X${f3(s0.x1)} ${internal ? '' : 'G42'}`.trim());
-  p(`G01 Z${f3(s0.z1)} F${f3(f * 0.8)}`);
+  p(`N${ns} ${K.rapid} X${f3(s0.x1)} ${internal ? '' : K.compR}`.trim());
+  p(`${K.lin} Z${f3(s0.z1)} F${f3(f * 0.8)}`);
   for (const s of segs) {
-    if (s.type === 'line') p(`G01 X${f3(s.x2)} Z${f3(s.z2)}`);
-    else p(`G0${s.dir} X${f3(s.x2)} Z${f3(s.z2)} R${f3(s.r)}`);
+    if (s.type === 'line') p(`${K.lin} X${f3(s.x2)} Z${f3(s.z2)}`);
+    else p(`${s.dir === 2 ? K.cw : K.ccw} X${f3(s.x2)} Z${f3(s.z2)} R${f3(s.r)}`);
   }
   const last = segs[segs.length - 1];
-  if (last.x2 < D + 2) p(`G01 X${f3(D + 2)}`);
-  p(`N${ne} G00 X${f3(D + 5)} G40`);
+  if (last.x2 < D + 2) p(`${K.lin} X${f3(D + 2)}`);
+  p(`N${ne} ${K.rapid} X${f3(D + 5)} ${K.compOff}`);
 }

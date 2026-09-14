@@ -1,6 +1,7 @@
 // Generator G-kodu — frezarka Haas VF (Classic Control, G17, G94 mm/min, G54).
 import { getMaterial } from './materials.js';
 import { rpm as calcRpm, vfMill, boltCircle, ascii } from './calc.js';
+import { getPost, withDefaults, tpl, finalize } from './posts.js';
 
 export const MILL_TOOL_TYPES = [
   'Frez walcowy', 'Frez kulowy', 'Frez czołowy', 'Frez fazowy 90°', 'Frez tarczowy',
@@ -79,10 +80,12 @@ export function holePoints(op) {
   return pts;
 }
 
-export function generateMill(state) {
+export function generateMill(state, postIn) {
   const L = [], W = [];
   const p = (...a) => L.push(a.join(''));
   const C = (t) => `(${ascii(t)})`;
+  const post = withDefaults(postIn || getPost(state.post, 'mill', state.customPosts));
+  const K = post.codes, CY = post.cycles;
   const mat = getMaterial(state.material, state.customMaterials);
   const { x: X, y: Y, z: Z } = state.stock;
   const SZ = state.safeZ || 50, RZ = 2;
@@ -96,18 +99,16 @@ export function generateMill(state) {
     time += vf ? dist / vf : dist / 15000;
     cur = { x: x ?? cur.x, y: y ?? cur.y, z: z ?? cur.z };
   };
-  const G0 = (x, y, z) => { p('G00' + (x != null ? ` X${f3(x)}` : '') + (y != null ? ` Y${f3(y)}` : '') + (z != null ? ` Z${f3(z)}` : '')); move(x, y, z); };
-  const G1 = (x, y, z, vf, extra = '') => { p('G01' + (x != null ? ` X${f3(x)}` : '') + (y != null ? ` Y${f3(y)}` : '') + (z != null ? ` Z${f3(z)}` : '') + (vf ? ` F${Math.round(vf)}` : '') + extra); move(x, y, z, vf || 1000); };
-  const ARC = (g, x, y, i, j, vf, z) => { p(`G0${g} X${f3(x)} Y${f3(y)} I${f3(i)} J${f3(j)}` + (z != null ? ` Z${f3(z)}` : '') + (vf ? ` F${Math.round(vf)}` : '')); const r = Math.hypot(i, j); time += (2 * Math.PI * r) / (vf || 1000); cur = { x, y, z: z ?? cur.z }; };
+  const G0 = (x, y, z) => { p(K.rapid + (x != null ? ` X${f3(x)}` : '') + (y != null ? ` Y${f3(y)}` : '') + (z != null ? ` Z${f3(z)}` : '')); move(x, y, z); };
+  const G1 = (x, y, z, vf, extra = '') => { p(K.lin + (x != null ? ` X${f3(x)}` : '') + (y != null ? ` Y${f3(y)}` : '') + (z != null ? ` Z${f3(z)}` : '') + (vf ? ` F${Math.round(vf)}` : '') + extra); move(x, y, z, vf || 1000); };
+  const ARC = (g, x, y, i, j, vf, z) => { p(`${g === 2 ? K.cw : K.ccw} X${f3(x)} Y${f3(y)} I${f3(i)} J${f3(j)}` + (z != null ? ` Z${f3(z)}` : '') + (vf ? ` F${Math.round(vf)}` : '')); const r = Math.hypot(i, j); time += (2 * Math.PI * r) / (vf || 1000); cur = { x, y, z: z ?? cur.z }; };
 
-  p(`O${pn} ${C('HAAS VF FREZARKA -- ' + mat.name)}`);
-  if (state.title) p(C(state.title));
-  p(C(`DETAL: X${X} x Y${Y} x Z${Z} mm  BAZA G54: ${base.t}`));
-  p(C(`CNC VPS ${new Date().toISOString().slice(0, 10)} / G54 / G17 / MM / G94`));
-  p('');
-  p('G21 G17 G40 G49 G80 ' + C('mm / xy / brak komp.'));
-  p('G90 G94 ' + C('abs / posuw mm/min'));
-  p('G28 G91 Z0.'); p('G90');
+  tpl(post.header, {
+    START: post.startChar, PROG: pn, HEAD: ascii(post.name + ' -- ' + mat.name),
+    TITLE: state.title ? ascii(state.title) : '',
+    STOCK: ascii(`DETAL: X${X} x Y${Y} x Z${Z} mm  BAZA ${K.wcs}: ${base.t}`),
+    GEN: ascii(`CNC VPS ${new Date().toISOString().slice(0, 10)} / ${K.wcs} / ${K.plane} / MM`)
+  }).forEach((l) => p(l));
 
   state.ops.forEach((op, i) => {
     const t = state.tools[op.tool - 1] || {};
@@ -120,14 +121,14 @@ export function generateMill(state) {
     p('');
     p(C(`==== OP ${i + 1}: ${MILL_OPS[op.type].full} ====`));
     if (op.tool !== last) {
-      if (last !== -1) { p('M05'); p('M09'); p('G28 G91 Z0.'); p('G90'); p('M01 ' + C('stop opcjonalny')); p(''); tcs++; }
-      p(C(`T${tno} ${t.type || '?'} D${td} z${tz} Vc${Math.round(tvc)} fz${tfz}`));
-      p(`T${tno} M06`);
-      p(`G54 G00 X0. Y0.`);
-      p(`G43 H${tno} Z${f2(SZ)} ${C('komp. dlugosci')}`);
-      p(`S${n} M03 ${C(`n=${n} (Vc ${Math.round(tvc)} @ D${td})`)}`);
+      if (last !== -1) { p(K.spinOff); if (cool) p(K.coolOff); p('G28 G91 Z0.'); p(K.abs); p(K.optStop + ' ' + C('stop opcjonalny')); p(''); tcs++; }
+      tpl(post.toolChange, {
+        TT: tno, S: n, SAFEZ: f2(SZ), MAXRPM: maxR,
+        TOOLDIA: td, TOOLLEN: t.len || '',
+        TOOLDESC: ascii(`${t.type || '?'} D${td} z${tz} Vc${Math.round(tvc)} fz${tfz}`)
+      }).forEach((l) => p(l));
       last = op.tool; cur = { x: 0, y: 0, z: SZ };
-    } else p(`S${n} M03`);
+    } else p(`S${n} ${K.spinCW}`);
     if (cool) p(cool);
     p(C(`Vf = ${tfz} x ${tz} x ${n} = ${vf} mm/min`));
     if (!t.type) W.push(`OP ${i + 1}: narzędzie T${tno} jest puste w magazynie`);
@@ -161,14 +162,14 @@ export function generateMill(state) {
         for (const z of zPasses(zt)) {
           p(C(`-- Z${f2(z)} --`));
           G1(null, null, z, vfz);
-          p(`G${comp} D${tno} G01 X${f3(a)} Y${f3(b + r)} F${vf}`); move(a, b + r, null, vf);
+          p(`${comp === 41 ? K.compL : K.compR} D${tno} ${K.lin} X${f3(a)} Y${f3(b + r)} F${vf}`); move(a, b + r, null, vf);
           if (r > 0) {
             G1(null, d - r, null, vf); ARC(2, a + r, d, r, 0, vf);
             G1(c - r, null, null, vf); ARC(2, c, d - r, 0, -r, vf);
             G1(null, b + r, null, vf); ARC(2, c - r, b, -r, 0, vf);
             G1(a + r, null, null, vf); ARC(2, a, b + r, 0, r, vf);
           } else { G1(null, d, null, vf); G1(c, null, null, vf); G1(null, b, null, vf); G1(a, null, null, vf); }
-          p(`G40 G01 X${f3(a - td)} Y${f3(b - td)}`); move(a - td, b - td, null, vf);
+          p(`${K.compOff} ${K.lin} X${f3(a - td)} Y${f3(b - td)}`); move(a - td, b - td, null, vf);
         }
         G0(null, null, SZ);
         break;
@@ -180,9 +181,9 @@ export function generateMill(state) {
         for (const z of zPasses(zt)) {
           p(C(`-- Z${f2(z)} --`));
           G1(null, null, z, vfz);
-          p(`G${comp} D${tno} G01 X${f3(cx - r)} Y${f3(cy)} F${vf}`); move(cx - r, cy, null, vf);
+          p(`${comp === 41 ? K.compL : K.compR} D${tno} ${K.lin} X${f3(cx - r)} Y${f3(cy)} F${vf}`); move(cx - r, cy, null, vf);
           ARC(comp === 41 ? 2 : 3, cx - r, cy, r, 0, vf);
-          p(`G40 G01 X${f3(cx - r - td)} Y${f3(cy)}`); move(cx - r - td, cy, null, vf);
+          p(`${K.compOff} ${K.lin} X${f3(cx - r - td)} Y${f3(cy)}`); move(cx - r - td, cy, null, vf);
         }
         G0(null, null, SZ);
         break;
@@ -248,30 +249,32 @@ export function generateMill(state) {
       }
       case 'drill': {
         const pts = holePoints(op), fd = Math.round((t.fz || 0.1) * tz * n);
-        p(C(`wiercenie D${td} Z${zt} ${pts.length} otw. ${op.peck > 0 ? 'G83 peck ' + op.peck : 'G81'}`));
+        const dCyc = op.peck > 0 ? (op.chip ? CY.chip : CY.peck) : CY.drill;
+        p(C(`wiercenie D${td} Z${zt} ${pts.length} otw. ${op.peck > 0 ? dCyc + ' peck ' + op.peck : dCyc}`));
         G0(pts[0].x, pts[0].y, null); G0(null, null, 5);
-        p((op.peck > 0 ? `G83 Z${f3(zt)} Q${f3(op.peck)} R2. F${fd}` : `G81 Z${f3(zt)} R2. F${fd}`) + ' G99');
+        p(`${dCyc} Z${f3(zt)}${op.peck > 0 ? ` Q${f3(op.peck)}` : ''} R2. F${fd} ${CY.ret}`);
         pts.forEach((q, k) => { if (k) p(`X${f3(q.x)} Y${f3(q.y)}`); time += (Math.abs(zt) + 2) / fd * (op.peck > 0 ? 1.6 : 1) + 0.03; });
-        p('G80'); G0(null, null, SZ);
+        p(CY.off); G0(null, null, SZ);
         break;
       }
       case 'tap': {
         const pts = holePoints(op), tn = Math.min(n, 800), tvf = Math.round(tn * op.pitch);
         p(C(`gwintowanie M${td}x${op.pitch} Z${zt} ${pts.length} otw.`));
         p(`(! F = n x skok = ${tn} x ${op.pitch} = ${tvf} !)`);
-        p('M05'); p(`S${tn} M03`);
+        p(K.spinOff); p(`S${tn} ${K.spinCW}`);
+        if (CY.rigid) p(`${CY.rigid} S${tn} ${C('sztywne gwintowanie')}`);
         G0(pts[0].x, pts[0].y, null); G0(null, null, 5);
-        p(`G84 Z${f3(zt)} R5. F${tvf} G99`);
+        p(`${CY.tap} Z${f3(zt)} R5. F${tvf} ${CY.ret}`);
         pts.forEach((q, k) => { if (k) p(`X${f3(q.x)} Y${f3(q.y)}`); time += (2 * (Math.abs(zt) + 5)) / tvf + 0.05; });
-        p('G80'); G0(null, null, SZ);
+        p(CY.off); G0(null, null, SZ);
         break;
       }
       case 'bore': {
         p(C(`wytaczanie D${op.dia} Z${zt} ${op.cycle}`));
         G0(op.cx, op.cy, null); G0(null, null, 5);
-        if (op.cycle === 'G76') p(`G76 Z${f3(zt)} R2. I0.5 F${Math.round(vf * 0.5)} ${C('wytaczanie z odsunieciem')}`);
-        else p(`G85 Z${f3(zt)} R2. F${Math.round(vf * 0.5)}`);
-        p('G80'); G0(null, null, SZ);
+        if (op.cycle === 'G76') p(`${CY.boreOrient} Z${f3(zt)} R2. I0.5 F${Math.round(vf * 0.5)} ${C('wytaczanie z odsunieciem')}`);
+        else p(`${CY.bore} Z${f3(zt)} R2. F${Math.round(vf * 0.5)}`);
+        p(CY.off); G0(null, null, SZ);
         time += (2 * Math.abs(zt)) / (vf * 0.5) + 0.05;
         break;
       }
@@ -290,8 +293,6 @@ export function generateMill(state) {
     }
   });
   p('');
-  p('(==== KONIEC PROGRAMU ====)');
-  p('M05'); if (cool) p('M09');
-  p('G40 G49 G80'); p('G28 G91 Z0.'); p('G28 G91 X0. Y0.'); p('G90'); p('M30'); p('%');
-  return { lines: L, warnings: W, time: { cut: time, toolChanges: tcs, total: time + tcs * 0.2 + 0.3 } };
+  tpl(post.footer, { COOLOFF: cool ? K.coolOff : '', END: post.endChar }).forEach((l) => p(l));
+  return { lines: finalize(L, post), warnings: W, post: { id: post.id, name: post.name }, time: { cut: time, toolChanges: tcs, total: time + tcs * 0.2 + 0.3 } };
 }

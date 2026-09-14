@@ -4,6 +4,8 @@ import { isoTolerance, tapDrill } from '../src/core/tables.js';
 import { generateLathe, defaultLatheTools, defaultLatheOp, expandProfile, latheModel } from '../src/core/lathe.js';
 import { generateMill, defaultMillTools, defaultMillOp, holePoints } from '../src/core/mill.js';
 import { parseGcode } from '../src/core/backplot.js';
+import { BUILTIN_POSTS, getPost, parseSpm, tpl, finalize } from '../src/core/posts.js';
+import { readFileSync } from 'node:fs';
 
 describe('calc', () => {
   it('rpm z Vc', () => {
@@ -95,8 +97,9 @@ describe('frezarka', () => {
     const txt = r.lines.join('\n');
     expect(txt).toMatch(/T01 M06/);
     expect(txt).toMatch(/G41 D02/);
-    expect(txt).toMatch(/G83 Z-15\.000 Q4\.000/);
-    expect(txt).toMatch(/G84 Z-12\.000 R5\. F\d+/);
+    expect(txt).toMatch(/G83 Z-15\.000 Q4\.000 R2\.000/);
+    expect(txt).toMatch(/G84 Z-12\.000 R5\.000 F\d+/);
+    expect(r.lines.at(-1)).toBe('%');
     expect(r.lines.at(-2)).toBe('M30');
     expect(r.time.toolChanges).toBeGreaterThan(3);
   });
@@ -117,5 +120,61 @@ describe('frezarka', () => {
     const st = millState(['pock']);
     st.ops[0].x2 = st.ops[0].x1 + 5;
     expect(generateMill(st).warnings.some((w) => /węższa/.test(w))).toBe(true);
+  });
+});
+
+describe('post-procesory', () => {
+  it('wbudowane posty mają komplet pól', () => {
+    for (const p of BUILTIN_POSTS) {
+      expect(p.id && p.name && p.machine).toBeTruthy();
+      expect(p.header.length).toBeGreaterThan(1);
+      expect(p.toolChange.length).toBeGreaterThan(1);
+      expect(p.footer.join(' ')).toMatch(/M30/);
+    }
+  });
+  it('tpl podstawia tokeny i usuwa puste linie', () => {
+    const out = tpl(['O{PROG} ({HEAD})', '({TITLE})', 'G{X:54}'], { PROG: '1001', HEAD: 'TEST', TITLE: '' });
+    expect(out).toEqual(['O1001 (TEST)', 'G54']);
+  });
+  it('finalize numeruje bloki i pomija komentarze, %, O i etykiety N', () => {
+    const post = { seq: { on: true, prefix: 'N', start: 1, inc: 1, digits: 4, comments: false } };
+    const out = finalize(['%', 'O1001', '(KOMENTARZ)', 'G00 X10.', 'N100 G00 X5.', 'G01 Z-2.'], post);
+    expect(out).toEqual(['%', 'O1001', '(KOMENTARZ)', 'N0001 G00 X10.000', 'N100 G00 X5.000', 'N0002 G01 Z-2.000']);
+  });
+  it('post bez spacji sklejał bloki, ale nie komentarze', () => {
+    const out = finalize(['G00 X10. Y2. (OPIS Z SPACJA)'], { spaces: false });
+    expect(out[0]).toBe('G00X10.000Y2.000(OPIS Z SPACJA)');
+  });
+  it('zmiana postu zmienia G-kod frezarki', () => {
+    const st = millState(['drill', 'tap']);
+    const a = generateMill(st, getPost('haas-vf-classic', 'mill')).lines.join('\n');
+    const b = generateMill(st, getPost('haas-mm-bart-v2', 'mill')).lines.join('\n');
+    expect(a).not.toBe(b);
+    expect(a).toMatch(/T\d\d M06/);
+    expect(b).toMatch(/N0\d{3}G21T\d\dM6/);
+    expect(b).toMatch(/M29/);            // sztywne gwintowanie tylko w poście BART
+    expect(a).not.toMatch(/M29/);
+  });
+  it('post tokarki steruje cyklami', () => {
+    const st = latheState(['rough', 'finish']);
+    const r = generateLathe(st, getPost('fanuc-lathe', 'lathe'));
+    expect(r.lines.join('\n')).toMatch(/N\d+ G71 P100 Q110/);
+  });
+  it('import .spm czyta numerację, cykle i bloki', () => {
+    const spm = readFileSync('tests/fixtures/HaasMM_BARTv2.spm', 'utf8');
+    const post = parseSpm(spm, 'HaasMM_BARTv2.spm');
+    expect(post.machine).toBe('mill');
+    expect(post.seq).toMatchObject({ on: true, prefix: 'N', start: 1, inc: 1, digits: 4 });
+    expect(post.spaces).toBe(false);
+    expect(post.cycles.peck).toBe('G83');
+    expect(post.cycles.rigid).toBe('M29');
+    expect(post.header.join(' ')).toMatch(/O\{PROG\}/);
+    expect(post.toolChange.join(' ')).toMatch(/T\{TT\}M6/);
+    expect(post.footer.join(' ')).toMatch(/M30/);
+    const out = generateMill(millState(['drill']), post).lines.join('\n');
+    expect(out).toMatch(/N0001/);
+  });
+  it('odrzuca plik, który nie jest .spm', () => {
+    expect(() => parseSpm('to nie jest post', 'x.spm')).toThrow();
   });
 });

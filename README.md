@@ -14,6 +14,12 @@ Mobilny kalkulator parametrów skrawania i generator G-kodu dla **Haas SL-20T** 
 - Planowanie zygzak, profil G41/G42 z promieniami naroży, okrąg, kieszeń prostokątna z **wejściem rampą 3°**, kieszeń okrągła (helisa + spirala), rowek, wiercenie G81/G83 (siatka lub **PCD**), gwintowanie G84, wytaczanie G85/G76, fazowanie.
 - Podgląd XY z geometrią operacji, punkt bazy G54 (9 pozycji), przekrój XZ głębokości.
 
+**Post-procesory (Ustawienia)**
+- Wybór postu osobno dla tokarki i frezarki; post steruje kodami, cyklami i formatowaniem — generator nie zna konkretnego sterownika.
+- Wbudowane: **Haas VF Classic Control**, **Haas MM BART v2** (odwzorowanie `HaasMM_BARTv2.spm`: N0001+1, bez spacji, G54 w zmianie narzędzia, M29), **Fanuc 0i-M**, **Haas SL-20T Classic Control**, **Fanuc 0i-T**.
+- **Import `.spm` z VisualMill / VisualCAD-CAM** — numeracja, znaki komentarza, precyzja, kody ruchu i cykli oraz bloki startu, zmiany narzędzia i końca programu; własne posty zapisują się lokalnie i można je eksportować do JSON.
+- Nadpisanie formatu bez ruszania postu: numeracja N (start, krok, zera wiodące), miejsca dziesiętne, spacje w bloku; podgląd przykładowych bloków na żywo.
+
 **Wspólne**
 - **Backplot** — parser wygenerowanego G-kodu rysuje ścieżkę narzędzia (posuw / szybki / G70) — weryfikacja generatora niezależna od jego logiki.
 - Pan / zoom (mysz, kółko, pinch na telefonie), pełny ekran podglądu.
@@ -61,8 +67,9 @@ Workflow `.github/workflows/android.yml` (ręcznie lub tag `v*`) buduje debug AP
 ## Struktura
 
 ```
-src/core/      logika bez DOM (testowana): materials, calc, tables, lathe, mill, backplot, storage
-src/ui/        app (stan + ekrany), preview (SVG), calc-view, export
+src/core/      logika bez DOM (testowana): materials, calc, tables, lathe, mill, posts, backplot, storage
+src/ui/        app (stan + ekrany), preview (SVG), calc-view, settings-view, export
+tests/fixtures/ przykładowy .spm do testów importu
 tests/         vitest
 .github/       deploy (Pages) + android (APK)
 ```
@@ -70,6 +77,7 @@ tests/         vitest
 ## Plan rozwoju
 - podgląd 3D (bryła obrotowa / bryła frezowana, three.js),
 - G72 (czołowy), G92, podprogramy M97/M98, konik/podtrzymka w cyklach,
+- edytor postów w aplikacji (własne bloki nagłówka i zmiany narzędzia), import postów Fusion/Mastercam,
 - zakładka „Pomiar” — makra Renishaw (G65 P9xxx) do ustawiania bazy i pomiaru,
 - własne materiały i płytki z zapisem, import listy narzędzi z CSV,
 - symulacja krok po kroku (suwak po liniach G-kodu).

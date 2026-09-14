@@ -7,6 +7,7 @@ import { storage, uid } from '../core/storage.js';
 import { renderLathe, renderMill, renderMillSide } from './preview.js';
 import { renderCalc, bindCalc } from './calc-view.js';
 import { exportNc } from './export.js';
+import { renderSettings, bindSettings, settingsAction, activePost, customPosts } from './settings-view.js';
 
 // ─── stan ───────────────────────────────────────────────────────────────────
 export function newLatheState() {
@@ -53,8 +54,11 @@ const toolOpts = () => cur().tools.map((t) => [t.no, `T${String(t.no).padStart(2
 // ─── obliczenia ─────────────────────────────────────────────────────────────
 export function compute() {
   const s = cur();
+  s.customPosts = customPosts();
   s.ops.forEach((o, i) => { o.id ??= ++app.opId; });
-  app.gc = isLathe() ? generateLathe(s) : generateMill(s);
+  const post = activePost(app.machine);
+  app.post = post;
+  app.gc = isLathe() ? generateLathe(s, post) : generateMill(s, post);
   app.bp = parseGcode(app.gc.lines, app.machine);
   return app.gc;
 }
@@ -259,7 +263,7 @@ function screenGcode() {
     <div class="k"><b>${s.ops.length}</b><span>operacji</span></div></div>`;
   const warn = g.warnings.length ? `<div class="warn-box">${g.warnings.map((w) => `<div>⚠ ${esc(w)}</div>`).join('')}</div>` : '';
   const code = g.lines.map((l) => `<span class="ln ${/\(!/.test(l) ? 'warn' : ''}">${highlight(l)}</span>`).join('');
-  return `<div class="sec">G-kod — O${esc(String(s.prog).padStart(4, '0'))} <span class="sp"></span><small>${isLathe() ? 'Haas SL-20T · G99 · mm' : 'Haas VF · G54 · G94 · mm'}</small></div>
+  return `<div class="sec">G-kod — O${esc(String(s.prog).padStart(4, '0'))} <span class="sp"></span><button class="btn sm" data-act="nav" data-s="settings" style="font-family:var(--mono);font-size:11px">⚙ ${esc((app.post || {}).name || 'post')}</button></div>
     ${stats}${warn}
     <div class="row" style="margin-bottom:8px">
       <button class="btn primary" data-act="gc-copy">⧉ Kopiuj</button>
@@ -276,23 +280,25 @@ const NAV = [
   ['ops', 'Operacje', '<path d="M4 6h16M4 12h16M4 18h10"/><circle cx="19" cy="18" r="2"/>'],
   ['tools', 'Narzędzia', '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.4 2.4-2.1-2.1z"/>'],
   ['gcode', 'G-kod', '<path d="M8 9l-4 3 4 3M16 9l4 3-4 3M13 5l-2 14"/>'],
-  ['calc', 'Kalkulatory', '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 12h2M12 12h2M16 12h0M8 16h2M12 16h2M16 16h0"/>']
+  ['calc', 'Kalkul.', '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 12h2M12 12h2M16 12h0M8 16h2M12 16h2M16 16h0"/>'],
+  ['settings', 'Ustaw.', '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/>']
 ];
 export function render() {
   compute();
   const root = document.getElementById('app');
-  const screens = { detal: screenDetal, ops: screenOps, tools: screenTools, gcode: screenGcode, calc: () => renderCalc(app) };
+  const screens = { detal: screenDetal, ops: screenOps, tools: screenTools, gcode: screenGcode, calc: () => renderCalc(app), settings: () => renderSettings(app) };
   root.innerHTML = `
     <header class="hdr">
       <span class="logo">CNC VPS</span>
       <div class="seg"><button data-act="machine" data-m="lathe" class="${isLathe() ? 'on' : ''}">Tokarka</button><button data-act="machine" data-m="mill" class="${isLathe() ? '' : 'on'}">Frezarka</button></div>
       <button class="icon-btn" data-act="theme" title="motyw">${app.theme === 'dark' ? '☀' : '☾'}</button>
-      <button class="icon-btn" data-act="menu" title="menu">☰</button>
+      <button class="icon-btn" data-act="proj-open" title="projekty">📂</button>
     </header>
     <main class="screen" id="screen">${screens[app.screen]()}</main>
     <nav class="nav">${NAV.map(([k, l, ic]) => `<button data-act="nav" data-s="${k}" class="${app.screen === k ? 'on' : ''}"><svg viewBox="0 0 24 24">${ic}</svg>${l}${k === 'gcode' && app.gc && app.gc.warnings.length ? `<span class="badge">${app.gc.warnings.length}</span>` : ''}</button>`).join('')}</nav>`;
   drawPreview(false);
   if (app.screen === 'calc') bindCalc(app);
+  if (app.screen === 'settings') bindSettings(app, render, toast);
   window.scrollTo(0, 0);
 }
 /** Lekka aktualizacja po zmianie wartości (bez przebudowy formularza). */
@@ -350,7 +356,8 @@ function onClick(e) {
     case 'nav': app.screen = b.dataset.s; app.ui.big = false; render(); break;
     case 'machine': app.machine = b.dataset.m; app.ui.big = false; render(); autosave(); break;
     case 'theme': app.theme = app.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = app.theme; storage.set('theme', app.theme); render(); break;
-    case 'menu': openMenu(); break;
+    case 'post-import': case 'post-export': case 'post-delete': case 'post-reset':
+      settingsAction(a, b, app, render, toast); break;
     case 'base': s.base = parseInt(b.dataset.i, 10); render(); break;
     case 'op-add': { const op = { id: ++app.opId, ...(isLathe() ? defaultLatheOp(b.dataset.type, s) : defaultMillOp(b.dataset.type, s)) }; s.ops.push(op); render(); setTimeout(() => document.querySelector(`[data-opid="${op.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50); break; }
     case 'op-del': s.ops.splice(opIdx, 1); render(); break;
@@ -398,14 +405,6 @@ function openProjects() {
     f.text().then((t) => { const o = JSON.parse(t); if (o.state && o.machine) { app.machine = o.machine; app[o.machine] = o.state; app.projectId = null; app.projectName = o.name || f.name; closeModal(); render(); toast('Zaimportowano'); } });
   });
 }
-function openMenu() {
-  modal(`<div class="sec" style="margin-top:0">CNC VPS <span class="sp"></span><button class="btn sm" data-act="modal-close">zamknij</button></div>
-    <p style="font-size:13px;line-height:1.6">Kalkulator parametrów skrawania i generator G-kodu dla <b>Haas SL-20T</b> (tokarka, Classic Control) i <b>Haas VF</b> (frezarka). Działa offline jako PWA.</p>
-    <div class="row" style="margin:10px 0"><button class="btn" data-act="proj-open">📂 Projekty</button><button class="btn" data-act="export-json">⤓ Eksport JSON</button></div>
-    <p class="muted" style="font-size:11px;line-height:1.6">⚠ Wygenerowany program zawsze sprawdź w trybie graficznym maszyny (Setting 6 / Graphics) i przejedź pierwszą sztukę z ograniczonym posuwem szybkim. Wartości Vc / f są orientacyjne — dostosuj do płytki i mocowania.</p>
-    <p class="muted mono" style="font-size:10px;margin-top:8px">v${__APP_VERSION__} · ${new Date().getFullYear()}</p>`);
-}
-
 export function boot() {
   document.documentElement.dataset.theme = app.theme;
   const draft = storage.get('draft');

@@ -125,5 +125,8 @@ export const fmt = (v, d = 3) => (Number.isFinite(v) ? Number(v).toFixed(d) : '�
 
 /** Komentarz dla sterownika Haas: wielkie litery, bez polskich znaków, bez zagnieżdżonych nawiasów. */
 export function ascii(t) {
-  return String(t).toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/Ł/g, 'L').replace(/[()]/g, '').replace(/[^\x20-\x7E]/g, '');
+  return String(t).toUpperCase()
+    .replace(/[—–]/g, '-').replace(/⌀|Ø/g, 'FI').replace(/×/g, 'X').replace(/°/g, ' ST')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/Ł/g, 'L')
+    .replace(/[()]/g, '').replace(/[^\x20-\x7E]/g, '').replace(/ {2,}/g, ' ').trim();
 }
