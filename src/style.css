@@ -145,7 +145,11 @@ table.tbl td{padding:4px;border-bottom:1px solid color-mix(in srgb,var(--border)
 .proj .pn{flex:1;min-width:0}
 .proj .pn b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .proj .pn small{color:var(--muted);font-family:var(--mono);font-size:10px}
-.toast{position:fixed;left:50%;bottom:calc(var(--nav-h) + var(--sab) + 12px);transform:translateX(-50%);background:var(--accent2);color:#002;padding:8px 14px;border-radius:999px;font-weight:600;font-size:13px;z-index:70;animation:fade 2.2s forwards}
+.toast{position:fixed;left:50%;bottom:calc(var(--nav-h) + var(--sab) + 12px);transform:translateX(-50%);background:var(--accent2);color:#002;padding:8px 10px 8px 14px;border-radius:999px;font-weight:600;font-size:13px;z-index:70;display:flex;align-items:center;gap:10px;max-width:92vw;box-shadow:0 4px 18px #0006}
+.toast button{border:0;background:#0002;color:inherit;font:inherit;font-weight:700;padding:4px 10px;border-radius:999px}
+.ctrl-seg{display:flex;gap:4px;background:var(--panel2);border:1px solid var(--border);border-radius:999px;padding:3px}
+.ctrl-seg button{flex:1;border:0;background:none;color:var(--muted);padding:8px 6px;border-radius:999px;font-family:var(--mono);font-size:12px;font-weight:700}
+.ctrl-seg button.on{background:var(--accent);color:#fff}
 @keyframes fade{0%,70%{opacity:1}100%{opacity:0}}
 .base-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
 .base-grid button{aspect-ratio:2.6;border:1px solid var(--border);background:var(--panel2);border-radius:6px;font-family:var(--mono);font-size:11px;color:var(--muted)}

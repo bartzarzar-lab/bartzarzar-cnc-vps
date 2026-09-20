@@ -2,7 +2,7 @@
 // Czyste funkcje: state → { lines:[], warnings:[], time:{...}, profile }.
 import { getMaterial } from './materials.js';
 import { rpm as calcRpm, metricThread, threadPasses, ascii } from './calc.js';
-import { getPost, withDefaults, tpl, finalize } from './posts.js';
+import { getPost, withDefaults, tpl, finalize, wcsCode } from './posts.js';
 
 export const LATHE_TOOL_TYPES = [
   'Nóż zewn. zgrubny CNMG', 'Nóż wykończeniowy DCMT/CCMT', 'Nóż kopiujący VBMT',
@@ -184,6 +184,21 @@ export function profileRadius(segs, z, rStock) {
 }
 
 // ─── Generator ──────────────────────────────────────────────────────────────
+/** Lista użytych narzędzi jako komentarze do nagłówka programu. */
+function latheToolList(state) {
+  const used = [...new Set(state.ops.map((o) => o.tool))].sort((a, b) => a - b);
+  if (!used.length) return [];
+  const out = ['(---- LISTA NARZEDZI ----)'];
+  for (const no of used) {
+    const t = state.tools[no - 1] || {};
+    const ops = state.ops.filter((o) => o.tool === no).map((o) => LATHE_OPS[o.type].label).join(', ');
+    const tn = 'T' + String(no).padStart(2, '0') + String(no).padStart(2, '0');
+    out.push(`(${tn} ${ascii(t.type || '?')} | Vc${Math.round(t.vc || 0)} f${t.f || 0} | ${ascii(ops)})`);
+  }
+  out.push('(-----------------------)');
+  return out;
+}
+
 export function generateLathe(state, postIn) {
   const L = [], W = [];
   const p = (...a) => L.push(a.join(''));
@@ -201,13 +216,15 @@ export function generateLathe(state, postIn) {
   let time = 0, tcs = 0, lastTool = -1, seq = 100;
   const nAt = (vc, dia) => calcRpm(vc, Math.max(dia, 1), maxR);
 
+  const WCS = wcsCode(state.wcs || 'G54', post);
+  if (/^G154/.test(String(state.wcs || '')) && !post.wcsExt) W.push(`Układ ${state.wcs} wymaga sterowania NGC — użyto G54`);
   tpl(post.header, {
     START: post.startChar, PROG: pn, HEAD: ascii(post.name + ' -- ' + mat.name),
     TITLE: state.title ? ascii(state.title) : '',
     STOCK: ascii(`SUROWKA: FI${D} x L${LEN} mm`),
     GEN: ascii(`CNC VPS ${new Date().toISOString().slice(0, 10)} / ${K.feedRev} / MM / SREDNICOWO`),
-    MAXRPM: maxR
-  }).forEach((l) => p(l));
+    MAXRPM: maxR, WCS, TOOLLIST: post.toolList ? latheToolList(state) .join('\n') : ''
+  }).forEach((l) => l.split('\n').forEach((x) => p(x)));
   if (state.tailstock) p('M23 ' + C('konik wysun'));
 
   state.ops.forEach((op, i) => {

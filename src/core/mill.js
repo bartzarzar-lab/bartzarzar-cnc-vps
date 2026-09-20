@@ -1,11 +1,12 @@
 // Generator G-kodu — frezarka Haas VF (Classic Control, G17, G94 mm/min, G54).
 import { getMaterial } from './materials.js';
 import { rpm as calcRpm, vfMill, boltCircle, ascii } from './calc.js';
-import { getPost, withDefaults, tpl, finalize } from './posts.js';
+import { getPost, withDefaults, tpl, finalize, wcsCode } from './posts.js';
+import { PROBE_OPS, isProbeOp, probeBlock, probeHeader, defaultProbeOp } from './probe.js';
 
 export const MILL_TOOL_TYPES = [
   'Frez walcowy', 'Frez kulowy', 'Frez czołowy', 'Frez fazowy 90°', 'Frez tarczowy',
-  'Wiertło', 'Nawiertak', 'Gwintownik', 'Wytaczak', 'Rozwiertak', 'Frez do gwintów'
+  'Wiertło', 'Nawiertak', 'Gwintownik', 'Wytaczak', 'Rozwiertak', 'Frez do gwintów', 'Sonda pomiarowa'
 ];
 
 export const MILL_OPS = {
@@ -20,6 +21,11 @@ export const MILL_OPS = {
   bore:    { label: 'Wytaczanie', full: 'Wytaczanie G85/G76',         color: '#40c8d8' },
   chamfer: { label: 'Faza',       full: 'Fazowanie konturu',          color: '#d8a030' }
 };
+
+// Operacje pomiarowe dołączane do listy operacji frezarki.
+for (const [k, v] of Object.entries(PROBE_OPS)) {
+  MILL_OPS[k] = { label: v.label, full: v.full, color: v.color, probe: true };
+}
 
 export const BASES = [
   { i: 0, n: 'LG', t: 'Lewy-górny' }, { i: 1, n: 'SG', t: 'Środek-górny' }, { i: 2, n: 'PG', t: 'Prawy-górny' },
@@ -49,11 +55,14 @@ export function defaultMillTools(matKey, custom) {
     T(13, 'Frez fazowy 90°', 10, 2, m.vc, m.fz, 1),
     T(14, 'Wytaczak', 20, 1, m.vc * 0.6, 0.08, 0.3)
   ];
+  while (list.length < 19) list.push(T(list.length + 1, '', 0, 0, 0, 0, 0));
+  list.push(T(20, 'Sonda pomiarowa', 6, 1, 0, 0, 0));
   for (let i = list.length + 1; i <= 30; i++) list.push(T(i, '', 0, 0, 0, 0, 0));
   return list;
 }
 
 export function defaultMillOp(type, state) {
+  if (isProbeOp(type)) return defaultProbeOp(type, state);
   const { x: X, y: Y } = state.stock;
   const find = (nm) => (state.tools.find((t) => t.type === nm) || { no: 2 }).no;
   const D = {
@@ -80,6 +89,21 @@ export function holePoints(op) {
   return pts;
 }
 
+/** Lista użytych narzędzi jako komentarze do nagłówka programu. */
+function millToolList(state, maxR) {
+  const used = [...new Set(state.ops.map((o) => o.tool))].sort((a, b) => a - b);
+  if (!used.length) return [];
+  const out = ['(---- LISTA NARZEDZI ----)'];
+  for (const no of used) {
+    const t = state.tools[no - 1] || {};
+    const n = calcRpm(t.vc || 200, t.d || 6, maxR);
+    const ops = state.ops.filter((o) => o.tool === no).map((o) => MILL_OPS[o.type].label).join(', ');
+    out.push(`(T${String(no).padStart(2, '0')} D${t.d || '?'} ${ascii(t.type || '?')} | S${n} F${Math.round(vfMill(t.fz || 0.05, t.z || 2, n))} | ${ascii(ops)})`);
+  }
+  out.push('(-----------------------)');
+  return out;
+}
+
 export function generateMill(state, postIn) {
   const L = [], W = [];
   const p = (...a) => L.push(a.join(''));
@@ -92,6 +116,8 @@ export function generateMill(state, postIn) {
   const maxR = state.maxRpm || 8100, cool = state.coolant;
   const pn = String(state.prog || '2001').padStart(4, '0');
   const base = BASES[state.base ?? 6];
+  const WCS = wcsCode(state.wcs || 'G54', post);
+  if (/^G154/.test(String(state.wcs || '')) && !post.wcsExt) W.push(`Układ ${state.wcs} wymaga sterowania NGC — użyto G54`);
   let time = 0, tcs = 0, last = -1;
   let cur = { x: 0, y: 0, z: SZ };
   const move = (x, y, z, vf) => { // liczy czas i pamięta pozycję
@@ -106,12 +132,34 @@ export function generateMill(state, postIn) {
   tpl(post.header, {
     START: post.startChar, PROG: pn, HEAD: ascii(post.name + ' -- ' + mat.name),
     TITLE: state.title ? ascii(state.title) : '',
-    STOCK: ascii(`DETAL: X${X} x Y${Y} x Z${Z} mm  BAZA ${K.wcs}: ${base.t}`),
-    GEN: ascii(`CNC VPS ${new Date().toISOString().slice(0, 10)} / ${K.wcs} / ${K.plane} / MM`)
-  }).forEach((l) => p(l));
+    STOCK: ascii(`DETAL: X${X} x Y${Y} x Z${Z} mm  BAZA ${WCS}: ${base.t}`),
+    GEN: ascii(`CNC VPS ${new Date().toISOString().slice(0, 10)} / ${WCS} / ${K.plane} / MM`),
+    WCS, TOOLLIST: post.toolList ? millToolList(state, maxR).join('\n') : ''
+  }).forEach((l) => l.split('\n').forEach((x) => p(x)));
+
+  const anyProbe = state.ops.some((o) => isProbeOp(o.type));
+  if (anyProbe) { p(''); probeHeader(state, post).forEach((l) => p(l)); }
 
   state.ops.forEach((op, i) => {
     const t = state.tools[op.tool - 1] || {};
+    if (isProbeOp(op.type)) {
+      const tno = String(op.tool).padStart(2, '0');
+      p('');
+      p(C(`==== OP ${i + 1}: ${MILL_OPS[op.type].full} ====`));
+      if (op.tool !== last) {
+        if (last !== -1) { p(K.spinOff); if (cool) p(K.coolOff); p('G28 G91 Z0.'); p(K.abs); p(K.optStop + ' ' + C('stop opcjonalny')); p(''); tcs++; }
+        p(C(`T${tno} SONDA POMIAROWA`));
+        p(`T${tno} ${K.toolChange || 'M06'}`);
+        p(`${WCS} ${K.rapid} X0. Y0.`);
+        p(`${K.lenComp} H${tno} Z${f2(SZ)} ${C('komp. dlugosci sondy')}`);
+        last = op.tool; cur = { x: 0, y: 0, z: SZ };
+      }
+      const pb = probeBlock(op, state, post);
+      pb.lines.forEach((l) => p(l));
+      pb.warnings.forEach((w) => W.push(`OP ${i + 1}: ${w}`));
+      time += 0.4;
+      return;
+    }
     const td = t.d || 6, tz = Math.max(1, t.z || 2), tvc = t.vc || 200, tfz = t.fz || 0.05;
     const n = calcRpm(tvc, td, maxR);
     const vf = Math.round(vfMill(tfz, tz, n));
@@ -125,7 +173,7 @@ export function generateMill(state, postIn) {
       tpl(post.toolChange, {
         TT: tno, S: n, SAFEZ: f2(SZ), MAXRPM: maxR,
         TOOLDIA: td, TOOLLEN: t.len || '',
-        TOOLDESC: ascii(`${t.type || '?'} D${td} z${tz} Vc${Math.round(tvc)} fz${tfz}`)
+        TOOLDESC: ascii(`${t.type || '?'} D${td} z${tz} Vc${Math.round(tvc)} fz${tfz}`), WCS
       }).forEach((l) => p(l));
       last = op.tool; cur = { x: 0, y: 0, z: SZ };
     } else p(`S${n} ${K.spinCW}`);

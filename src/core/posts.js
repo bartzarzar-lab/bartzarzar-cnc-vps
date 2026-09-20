@@ -99,7 +99,11 @@ const DEFAULTS = {
   progPrefix: 'O',
   progDigits: 4,
   startChar: '%',
-  endChar: '%'
+  endChar: '%',
+  control: 'HCC',       // HCC = Haas Classic Control, NGC = Next Generation Control
+  wcsExt: false,        // czy sterownik obsługuje rozszerzone układy G154 P1-P99
+  toolList: false,      // lista narzędzi jako komentarze w nagłówku
+  probe: null           // { macro:'P9023', style:'easyset' } — sonda Renishaw
 };
 
 export function withDefaults(post) {
@@ -112,6 +116,39 @@ export function withDefaults(post) {
   return p;
 }
 
+// ─── układy współrzędnych ───────────────────────────────────────────────────
+/** Lista układów dostępnych dla postu: G54-G59 zawsze, G154 P1-P99 tylko na NGC. */
+export function wcsOptions(post) {
+  const p = withDefaults(post);
+  const out = [];
+  for (let i = 54; i <= 59; i++) out.push(['G' + i, 'G' + i]);
+  if (p.wcsExt) for (let i = 1; i <= 99; i++) out.push(['G154P' + i, `G154 P${i}`]);
+  return out;
+}
+/** Zapis układu w bloku G-kodu: 'G54' albo 'G154 P12'. */
+export function wcsCode(wcs, post) {
+  const p = withDefaults(post);
+  const m = /^G154P(\d+)$/.exec(String(wcs || 'G54'));
+  if (!m) return String(wcs || 'G54');
+  if (!p.wcsExt) return 'G54';
+  return p.spaces ? `G154 P${m[1]}` : `G154P${m[1]}`;
+}
+/**
+ * Wartość parametru S/W dla makr sondy Renishaw (EasySet / WIPS):
+ * G54 → 54., G154 P1 → 154.01 (format z dokumentacji Haas VPS).
+ */
+export function probeWcsValue(wcs) {
+  const m = /^G154P(\d+)$/.exec(String(wcs || 'G54'));
+  if (m) return '154.' + String(m[1]).padStart(2, '0');
+  return String(wcs || 'G54').replace(/^G/, '') + '.';
+}
+
+export const CONTROLS = [
+  { id: 'HCC', name: 'Haas Classic Control', short: 'HCC', note: 'Sterowniki Haas sprzed NGC (do ok. 2014). Układy G54–G59 + G110–G129.' },
+  { id: 'NGC', name: 'Haas Next Generation', short: 'NGC', note: 'Sterowniki Haas od ok. 2014. Rozszerzone układy G154 P1–P99, 5-cyfrowe numery O, G187.' },
+  { id: 'FANUC', name: 'Fanuc / inne', short: 'Fanuc', note: 'Warianty generyczne — sprawdź zgodność z dokumentacją swojej maszyny.' }
+];
+
 // ─── wbudowane posty ────────────────────────────────────────────────────────
 
 /** Haas VF — Classic Control (nasz domyślny, czytelny, z komentarzami). */
@@ -119,6 +156,8 @@ const HAAS_VF_CLASSIC = {
   id: 'haas-vf-classic',
   name: 'Haas VF — Classic Control',
   machine: 'mill',
+  control: 'HCC',
+  probe: { macro: 'P9023', style: 'easyset' },
   note: 'Domyślny post CNC VPS. Spacje, komentarze opisowe, bez numeracji N.',
   builtin: true,
   codes: {
@@ -144,7 +183,7 @@ const HAAS_VF_CLASSIC = {
   toolChange: [
     '(T{TT} {TOOLDESC})',
     'T{TT} M06',
-    'G54 G00 X0. Y0.',
+    '{WCS} G00 X0. Y0.',
     'G43 H{TT} Z{SAFEZ} (KOMP. DLUGOSCI)',
     'S{S} M03'
   ],
@@ -166,6 +205,8 @@ const HAAS_MM_BART = {
   id: 'haas-mm-bart-v2',
   name: 'Haas MM — BART v2 (z VisualMill)',
   machine: 'mill',
+  control: 'HCC',
+  probe: { macro: 'P9023', style: 'easyset' },
   note: 'Odwzorowanie HaasMM_BARTv2.spm: N0001+1, bez spacji, G54 w zmianie narzędzia, M29 sztywne gwintowanie.',
   builtin: true,
   seq: { on: true, prefix: 'N', start: 1, inc: 1, digits: 4, comments: true },
@@ -187,7 +228,7 @@ const HAAS_MM_BART = {
   ],
   toolChange: [
     '(TOOL DIAMETER = {TOOLDIA} {TOOLDESC})',
-    'G54',
+    '{WCS}',
     'G21T{TT}M6',
     'S{S}M3',
     'G90G0X0.Y0.',
@@ -201,6 +242,7 @@ const FANUC_MILL = {
   id: 'fanuc-mill',
   name: 'Fanuc 0i-M — generic',
   machine: 'mill',
+  control: 'FANUC',
   note: 'Wariant Fanuc: numeracja N10+10, powrót G98 w cyklach, M30 na końcu.',
   builtin: true,
   seq: { on: true, prefix: 'N', start: 10, inc: 10, digits: 0, comments: false },
@@ -223,7 +265,7 @@ const FANUC_MILL = {
   toolChange: [
     '({TOOLDESC})',
     'T{TT} M06',
-    'G54 G90 G00 X0. Y0. S{S} M03',
+    '{WCS} G90 G00 X0. Y0. S{S} M03',
     'G43 H{TT} Z{SAFEZ}'
   ],
   footer: ['M05', '{COOLOFF}', 'G40 G49 G80', 'G91 G28 Z0.', 'G91 G28 X0. Y0.', 'G90', 'M30', '{END}']
@@ -234,6 +276,7 @@ const HAAS_SL20T = {
   id: 'haas-sl20t-classic',
   name: 'Haas SL-20T — Classic Control',
   machine: 'lathe',
+  control: 'HCC',
   note: 'Domyślny post CNC VPS dla tokarki: G18/G99, T0101, G50 limit obrotów.',
   builtin: true,
   codes: {
@@ -269,6 +312,7 @@ const FANUC_LATHE = {
   id: 'fanuc-lathe',
   name: 'Fanuc 0i-T — generic',
   machine: 'lathe',
+  control: 'FANUC',
   note: 'Wariant Fanuc: numeracja N10+10, G50 limit, cykle G70-G76 jak Haas.',
   builtin: true,
   seq: { on: true, prefix: 'N', start: 10, inc: 10, digits: 0, comments: false },
@@ -280,7 +324,100 @@ const FANUC_LATHE = {
   footer: ['M05', '{COOLOFF}', 'G28 U0. W0.', 'M30', '{END}']
 };
 
-export const BUILTIN_POSTS = [HAAS_VF_CLASSIC, HAAS_MM_BART, FANUC_MILL, HAAS_SL20T, FANUC_LATHE];
+
+/** Haas VF/UMC — Next Generation Control. Rozszerzone układy G154, bezpieczna linia startu, G187. */
+const HAAS_VF_NGC = {
+  id: 'haas-vf-ngc',
+  name: 'Haas VF — Next Generation Control',
+  machine: 'mill',
+  control: 'NGC',
+  wcsExt: true,
+  toolList: true,
+  progDigits: 5,
+  probe: { macro: 'P9023', style: 'easyset' },
+  note: 'Sterownik NGC: bezpieczna linia startu, układy G154 P1-P99, G187 (gładkość), M29 przy gwintowaniu sztywnym, lista narzędzi w nagłówku.',
+  builtin: true,
+  codes: {
+    rapid: 'G00', lin: 'G01', cw: 'G02', ccw: 'G03', plane: 'G17',
+    abs: 'G90', inc: 'G91', metric: 'G21', feed: 'G94',
+    compOff: 'G40', compL: 'G41', compR: 'G42', lenComp: 'G43', lenOff: 'G49',
+    wcs: 'G54', spinCW: 'M03', spinOff: 'M05', toolChange: 'M06',
+    coolOn: 'M08', coolMist: 'M07', coolThru: 'M88', coolOff: 'M09', optStop: 'M01', end: 'M30'
+  },
+  cycles: { drill: 'G81', dwell: 'G82', peck: 'G83', chip: 'G73', tap: 'G84', tapL: 'G74', bore: 'G85', boreOrient: 'G76', off: 'G80', ret: 'G99', retHigh: 'G98', rigid: 'M29' },
+  header: [
+    '{START}',
+    'O{PROG} ({HEAD})',
+    '({TITLE})',
+    '({STOCK})',
+    '({GEN})',
+    '{TOOLLIST}',
+    '',
+    'G00 G17 G40 G49 G80 G90 G94 G98 (BEZPIECZNA LINIA STARTU)',
+    'G21 (MM)',
+    'G187 P3 (GLADKOSC: P1 SZORSTKO - P3 GLADKO)',
+    'G53 G00 Z0. (POWROT Z W UKLADZIE MASZYNY)'
+  ],
+  toolChange: [
+    '(T{TT} {TOOLDESC})',
+    'T{TT} M06',
+    '{WCS} G00 X0. Y0.',
+    'G43 H{TT} Z{SAFEZ} (KOMP. DLUGOSCI)',
+    'S{S} M03'
+  ],
+  footer: [
+    '(==== KONIEC PROGRAMU ====)',
+    'M05',
+    '{COOLOFF}',
+    'G40 G49 G80',
+    'G53 G00 Z0.',
+    'G53 G00 X0. Y0.',
+    'M30',
+    '{END}'
+  ]
+};
+
+/** Haas ST — Next Generation Control (tokarka). */
+const HAAS_ST_NGC = {
+  id: 'haas-st-ngc',
+  name: 'Haas ST — Next Generation Control',
+  machine: 'lathe',
+  control: 'NGC',
+  wcsExt: true,
+  toolList: true,
+  progDigits: 5,
+  note: 'Tokarka NGC: bezpieczna linia startu, G154 P1-P99, powrót G53, cykle jak w Classic.',
+  builtin: true,
+  codes: {
+    rapid: 'G00', lin: 'G01', cw: 'G02', ccw: 'G03', plane: 'G18',
+    abs: 'G90', metric: 'G21', feedRev: 'G99', feedMin: 'G98',
+    compOff: 'G40', compL: 'G41', compR: 'G42', rpmLimit: 'G50',
+    css: 'G96', rpmConst: 'G97', spinCW: 'M03', spinOff: 'M05',
+    coolOff: 'M09', optStop: 'M01', end: 'M30'
+  },
+  cycles: { rough: 'G71', roughFace: 'G72', finish: 'G70', groove: 'G75', thread: 'G76', threadSimple: 'G92', peck: 'G83', chip: 'G74', off: 'G80' },
+  toolFormat: 'TnnOO',
+  header: [
+    '{START}',
+    'O{PROG} ({HEAD})',
+    '({TITLE})',
+    '({STOCK})',
+    '({GEN})',
+    '{TOOLLIST}',
+    '',
+    'G00 G18 G40 G80 G99 (BEZPIECZNA LINIA STARTU)',
+    'G21 (MM)',
+    'G53 G00 X0. Z0. (POWROT W UKLADZIE MASZYNY)'
+  ],
+  toolChange: [
+    '(NARZEDZIE {TSTR} -- {TOOLDESC})',
+    'G00 {TSTR}',
+    'G50 S{MAXRPM} (MAX RPM)'
+  ],
+  footer: ['(==== KONIEC PROGRAMU ====)', 'M05', '{COOLOFF}', 'G53 G00 X0. Z0.', 'M30', '{END}']
+};
+
+export const BUILTIN_POSTS = [HAAS_VF_CLASSIC, HAAS_VF_NGC, HAAS_MM_BART, FANUC_MILL, HAAS_SL20T, HAAS_ST_NGC, FANUC_LATHE];
 
 export const DEFAULT_POST = { mill: 'haas-vf-classic', lathe: 'haas-sl20t-classic' };
 
@@ -426,6 +563,8 @@ export function postSummary(post) {
   const p = withDefaults(post);
   return [
     p.machine === 'lathe' ? 'tokarka' : 'frezarka',
+    p.control === 'NGC' ? 'NGC' : p.control === 'HCC' ? 'Classic Control' : 'Fanuc',
+    p.wcsExt ? 'G154 P1-P99' : 'G54-G59',
     p.seq.on ? `numeracja ${p.seq.prefix}${p.seq.digits ? String(p.seq.start).padStart(p.seq.digits, '0') : p.seq.start}+${p.seq.inc}` : 'bez numeracji',
     p.spaces ? 'ze spacjami' : 'bez spacji',
     `${p.prec.xyz} miejsc dziesiętnych`,

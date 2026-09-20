@@ -1,6 +1,6 @@
 // Ekran Ustawienia: wybór post-procesora dla maszyny, podgląd bloków, edycja formatowania,
 // import postów z plików .spm (VisualMill), motyw i informacje o programie.
-import { BUILTIN_POSTS, postsFor, getPost, postSummary, parseSpm, withDefaults, tpl, finalize } from '../core/posts.js';
+import { BUILTIN_POSTS, postsFor, getPost, postSummary, parseSpm, withDefaults, tpl, finalize, CONTROLS } from '../core/posts.js';
 import { storage } from '../core/storage.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -63,11 +63,20 @@ export function renderSettings(app) {
   const otherActive = activePost(other);
   const preview = samplePreview(active);
 
+  const ctrl = p.control || 'HCC';
+  const filtered = list.filter((x) => (withDefaults(x).control || 'HCC') === ctrl);
+  const shown = filtered.length ? filtered : list;
   return `
-  <div class="sec">Post-procesor <span class="sp"></span><small>${machine === 'lathe' ? 'tokarka' : 'frezarka'}</small></div>
+  <div class="sec">Sterowanie <span class="sp"></span><small>${machine === 'lathe' ? 'tokarka' : 'frezarka'}</small></div>
+  <div class="card">
+    <div class="ctrl-seg">${CONTROLS.map((c) => `<button data-act="ctrl-pick" data-c="${c.id}" class="${c.id === ctrl ? 'on' : ''}">${esc(c.short)}</button>`).join('')}</div>
+    <p class="muted" style="font-size:12px;margin-top:8px">${esc((CONTROLS.find((c) => c.id === ctrl) || {}).note || '')}</p>
+  </div>
+
+  <div class="sec">Post-procesor <span class="sp"></span><small>${shown.length} dla ${esc(ctrl)}</small></div>
   <div class="card">
     <div class="fl"><label>Aktywny post dla tej maszyny</label>
-      <select data-set="post">${list.map((x) => `<option value="${esc(x.id)}" ${x.id === active.id ? 'selected' : ''}>${esc(x.name)}${x.builtin ? '' : ' ●'}</option>`).join('')}</select></div>
+      <select data-set="post">${shown.map((x) => `<option value="${esc(x.id)}" ${x.id === active.id ? 'selected' : ''}>${esc(x.name)}${x.builtin ? '' : ' ●'}</option>`).join('')}</select></div>
     <p class="muted" style="font-size:12px;margin-top:8px">${esc(active.note || '')}</p>
     <p class="mono muted" style="font-size:11px;margin-top:4px">${esc(postSummary(active))}${active.modified ? ' · <b style="color:var(--warn)">zmodyfikowany</b>' : ''}</p>
     <div class="row" style="margin-top:10px">
@@ -181,6 +190,13 @@ export function settingsAction(act, el, app, rerender, toast) {
   const machine = app.machine;
   const active = activePost(machine);
   switch (act) {
+    case 'ctrl-pick': {
+      const want = el.dataset.c;
+      const cand = postsFor(machine, customPosts()).filter((x) => (withDefaults(x).control || 'HCC') === want);
+      if (!cand.length) { toast('Brak postu dla tego sterowania — wczytaj .spm'); return true; }
+      const sel = storage.get('postSel', {}); sel[machine] = cand[0].id; storage.set('postSel', sel);
+      rerender(); return true;
+    }
     case 'post-import': document.getElementById('spm-file').click(); return true;
     case 'post-export': {
       const blob = new Blob([JSON.stringify(active, null, 2)], { type: 'application/json' });

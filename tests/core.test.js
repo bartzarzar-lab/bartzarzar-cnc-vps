@@ -4,7 +4,7 @@ import { isoTolerance, tapDrill } from '../src/core/tables.js';
 import { generateLathe, defaultLatheTools, defaultLatheOp, expandProfile, latheModel } from '../src/core/lathe.js';
 import { generateMill, defaultMillTools, defaultMillOp, holePoints } from '../src/core/mill.js';
 import { parseGcode } from '../src/core/backplot.js';
-import { BUILTIN_POSTS, getPost, parseSpm, tpl, finalize } from '../src/core/posts.js';
+import { BUILTIN_POSTS, getPost, parseSpm, tpl, finalize, withDefaults, wcsOptions, probeWcsValue } from '../src/core/posts.js';
 import { readFileSync } from 'node:fs';
 
 describe('calc', () => {
@@ -176,5 +176,81 @@ describe('post-procesory', () => {
   });
   it('odrzuca plik, który nie jest .spm', () => {
     expect(() => parseSpm('to nie jest post', 'x.spm')).toThrow();
+  });
+});
+
+describe('sterowanie HCC / NGC', () => {
+  it('posty mają przypisane sterowanie, NGC ma rozszerzone układy', () => {
+    const ngc = getPost('haas-vf-ngc', 'mill');
+    const hcc = getPost('haas-vf-classic', 'mill');
+    expect(ngc.control).toBe('NGC');
+    expect(hcc.control).toBe('HCC');
+    expect(withDefaults(ngc).wcsExt).toBe(true);
+    expect(withDefaults(hcc).wcsExt).toBe(false);
+  });
+  it('G154 działa tylko na NGC, na Classic wraca do G54 z ostrzeżeniem', () => {
+    const st = millState(['face']);
+    st.wcs = 'G154P7';
+    const ngc = generateMill(st, getPost('haas-vf-ngc', 'mill'));
+    expect(ngc.lines.join('\n')).toMatch(/G154 P7 G00 X0\.000 Y0\.000/);
+    expect(ngc.warnings.length).toBe(0);
+    const hcc = generateMill(st, getPost('haas-vf-classic', 'mill'));
+    expect(hcc.lines.join('\n')).toMatch(/G54 G00/);
+    expect(hcc.warnings.some((w) => /NGC/.test(w))).toBe(true);
+  });
+  it('lista układów: 6 dla Classic, 105 dla NGC', () => {
+    expect(wcsOptions(getPost('haas-vf-classic', 'mill')).length).toBe(6);
+    expect(wcsOptions(getPost('haas-vf-ngc', 'mill')).length).toBe(105);
+  });
+  it('post NGC wypisuje listę narzędzi w nagłówku', () => {
+    const out = generateMill(millState(['face', 'drill']), getPost('haas-vf-ngc', 'mill')).lines.join('\n');
+    expect(out).toMatch(/LISTA NARZEDZI/);
+    expect(out).toMatch(/\(T01 D50 .* S\d+ F\d+/);
+  });
+});
+
+describe('pomiar sondą', () => {
+  function probeState(type, wcs = 'G54') {
+    const s = millState([]);
+    s.wcs = wcs;
+    s.ops.push({ id: 1, ...defaultMillOp(type, s) });
+    return s;
+  }
+  it('otwór: G65 P9023 A1 ze średnicą i zapisem do układu', () => {
+    const out = generateMill(probeState('pbore'), getPost('haas-vf-classic', 'mill')).lines.join('\n');
+    expect(out).toMatch(/G65 P9023 A1\. D20\.000 S54\./);
+    expect(out).toMatch(/SEKCJA POMIAROWA/);
+  });
+  it('na NGC z G154 P3 wynik zapisuje się jako S154.03', () => {
+    const out = generateMill(probeState('pbore', 'G154P3'), getPost('haas-vf-ngc', 'mill')).lines.join('\n');
+    expect(out).toMatch(/G65 P9023 A1\. D20\.000 S154\.03/);
+  });
+  it('naroże używa A17 z X, Y i Z', () => {
+    const out = generateMill(probeState('pcorner'), getPost('haas-vf-classic', 'mill')).lines.join('\n');
+    expect(out).toMatch(/G65 P9023 A17\. X10\.000 Y10\.000 Z-5\.000 S54\./);
+  });
+  it('powierzchnia Z: A9 bez geometrii', () => {
+    const out = generateMill(probeState('psurfz'), getPost('haas-vf-classic', 'mill')).lines.join('\n');
+    expect(out).toMatch(/G65 P9023 A9\. S54\./);
+  });
+  it('wyłączony zapis wyniku usuwa S i ostrzega', () => {
+    const st = probeState('pbore');
+    st.ops[0].update = false;
+    const r = generateMill(st, getPost('haas-vf-classic', 'mill'));
+    expect(r.lines.join('\n')).toMatch(/G65 P9023 A1\. D20\.000$/m);
+    expect(r.warnings.some((w) => /NIE jest zapisywany/.test(w))).toBe(true);
+  });
+  it('komentarze pomiarowe nie mają zagnieżdżonych nawiasów', () => {
+    const out = generateMill(probeState('pbore'), getPost('haas-vf-classic', 'mill')).lines;
+    for (const l of out) {
+      const opens = (l.match(/\(/g) || []).length, closes = (l.match(/\)/g) || []).length;
+      expect(opens).toBe(closes);
+      expect(l).not.toMatch(/\([^)]*\(/);
+    }
+  });
+  it('sonda dostaje własną zmianę narzędzia i korektor długości', () => {
+    const out = generateMill(probeState('pbore'), getPost('haas-vf-classic', 'mill')).lines.join('\n');
+    expect(out).toMatch(/T20 M06/);
+    expect(out).toMatch(/G43 H20/);
   });
 });

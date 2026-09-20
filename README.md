@@ -14,11 +14,21 @@ Mobilny kalkulator parametrów skrawania i generator G-kodu dla **Haas SL-20T** 
 - Planowanie zygzak, profil G41/G42 z promieniami naroży, okrąg, kieszeń prostokątna z **wejściem rampą 3°**, kieszeń okrągła (helisa + spirala), rowek, wiercenie G81/G83 (siatka lub **PCD**), gwintowanie G84, wytaczanie G85/G76, fazowanie.
 - Podgląd XY z geometrią operacji, punkt bazy G54 (9 pozycji), przekrój XZ głębokości.
 
-**Post-procesory (Ustawienia)**
+**Sterowanie i post-procesory (Ustawienia)**
+- Przełącznik **HCC / NGC / Fanuc** — wybór generacji sterownika filtruje listę postów i decyduje o dostępnych układach współrzędnych.
 - Wybór postu osobno dla tokarki i frezarki; post steruje kodami, cyklami i formatowaniem — generator nie zna konkretnego sterownika.
-- Wbudowane: **Haas VF Classic Control**, **Haas MM BART v2** (odwzorowanie `HaasMM_BARTv2.spm`: N0001+1, bez spacji, G54 w zmianie narzędzia, M29), **Fanuc 0i-M**, **Haas SL-20T Classic Control**, **Fanuc 0i-T**.
+- Wbudowane: **Haas VF Classic Control**, **Haas VF Next Generation** (bezpieczna linia startu, G154 P1–P99, G187, M29, lista narzędzi), **Haas MM BART v2** (odwzorowanie `HaasMM_BARTv2.spm`), **Fanuc 0i-M**, **Haas SL-20T Classic Control**, **Haas ST Next Generation**, **Fanuc 0i-T**.
+- Układ współrzędnych wybierany w ekranie Detal: G54–G59 zawsze, **G154 P1–P99 tylko na NGC** (na Classic generator sam wraca do G54 i ostrzega).
 - **Import `.spm` z VisualMill / VisualCAD-CAM** — numeracja, znaki komentarza, precyzja, kody ruchu i cykli oraz bloki startu, zmiany narzędzia i końca programu; własne posty zapisują się lokalnie i można je eksportować do JSON.
 - Nadpisanie formatu bez ruszania postu: numeracja N (start, krok, zera wiodące), miejsca dziesiętne, spacje w bloku; podgląd przykładowych bloków na żywo.
+
+**Pomiar sondą Renishaw (frezarka)**
+- Cykle `G65 P9023`: otwór (A1), czop (A2), kieszeń X/Y (A3), żebro X/Y (A4), powierzchnia Z (A9), środek bloku (A16), naroże (A17).
+- Parametr zapisu wyniku liczony z wybranego układu: **`S54.` na Classic, `S154.01` dla G154 P1** — bez ręcznego przeliczania.
+- Bloki zawierają dojazd nad element i odjazd, własną zmianę narzędzia sondy z `G43`, oraz ostrzeżenia w programie: kalibracja, milimetry zamiast cali, inne znaczenie `S` w pakiecie Inspection Plus (O98xx).
+
+**Karta ustawcza**
+- Jeden przycisk na ekranie G-kodu generuje dokument A4 do druku lub wysłania: nagłówek programu, rysunek poglądowy, tabela narzędzi z obrotami i posuwami, kolejność operacji z parametrami, uwagi generatora i miejsca na podpisy.
 
 **Wspólne**
 - **Backplot** — parser wygenerowanego G-kodu rysuje ścieżkę narzędzia (posuw / szybki / G70) — weryfikacja generatora niezależna od jego logiki.
@@ -26,6 +36,7 @@ Mobilny kalkulator parametrów skrawania i generator G-kodu dla **Haas SL-20T** 
 - Szacowany czas obróbki i liczba zmian narzędzi, ostrzeżenia (G70 bez G71, kieszeń węższa niż frez, Z głębiej niż detal, rampa za stroma…).
 - Magazyn narzędzi (12 / 30 pozycji) z presetami dla materiału, 8 materiałów (P/M/K/N/S) z kc1/mc do obliczeń mocy.
 - Kalkulatory: RPM / Vc / Vf, wydajność Q, **moc i moment** (Kienzle), gwint metryczny + blok G76 + wiertło pod gwint, **tolerancje ISO 286** (H7/g6… + luz pasowania), stożki (Morse, 1:10…), trójkąt prostokątny, PCD, chropowatość Ra ↔ f.
+- Cofnięcie usuniętej operacji, zwijanie wszystkich kart naraz, wibracja przy przyciskach +/-.
 - Zapis projektów, eksport/import JSON, eksport **.NC** (udostępnianie na Androidzie / pobranie), motyw jasny/ciemny, autosave.
 
 ## Zrzuty ekranu
@@ -67,8 +78,8 @@ Workflow `.github/workflows/android.yml` (ręcznie lub tag `v*`) buduje debug AP
 ## Struktura
 
 ```
-src/core/      logika bez DOM (testowana): materials, calc, tables, lathe, mill, posts, backplot, storage
-src/ui/        app (stan + ekrany), preview (SVG), calc-view, settings-view, export
+src/core/      logika bez DOM (testowana): materials, calc, tables, lathe, mill, posts, probe, backplot, storage
+src/ui/        app (stan + ekrany), preview (SVG), calc-view, settings-view, setup-sheet, export
 tests/fixtures/ przykładowy .spm do testów importu
 tests/         vitest
 .github/       deploy (Pages) + android (APK)
@@ -78,6 +89,6 @@ tests/         vitest
 - podgląd 3D (bryła obrotowa / bryła frezowana, three.js),
 - G72 (czołowy), G92, podprogramy M97/M98, konik/podtrzymka w cyklach,
 - edytor postów w aplikacji (własne bloki nagłówka i zmiany narzędzia), import postów Fusion/Mastercam,
-- zakładka „Pomiar” — makra Renishaw (G65 P9xxx) do ustawiania bazy i pomiaru,
+- cykle pomiarowe na tokarce, kalibracja sondy (A20–A23) i pomiar narzędzi,
 - własne materiały i płytki z zapisem, import listy narzędzi z CSV,
 - symulacja krok po kroku (suwak po liniach G-kodu).

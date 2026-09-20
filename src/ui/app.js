@@ -8,15 +8,18 @@ import { renderLathe, renderMill, renderMillSide } from './preview.js';
 import { renderCalc, bindCalc } from './calc-view.js';
 import { exportNc } from './export.js';
 import { renderSettings, bindSettings, settingsAction, activePost, customPosts } from './settings-view.js';
+import { isProbeOp, PROBE_OPS } from '../core/probe.js';
+import { wcsOptions, withDefaults } from '../core/posts.js';
+import { openSetupSheet } from './setup-sheet.js';
 
 // ─── stan ───────────────────────────────────────────────────────────────────
 export function newLatheState() {
-  const s = { prog: '1001', title: '', stock: { d: 30, l: 80, dmin: 20 }, material: 'S235', maxRpm: 4000, coolant: 'M08', tailstock: false, ops: [] };
+  const s = { prog: '1001', title: '', stock: { d: 30, l: 80, dmin: 20 }, material: 'S235', maxRpm: 4000, coolant: 'M08', tailstock: false, wcs: 'G54', ops: [] };
   s.tools = defaultLatheTools(s.material);
   return s;
 }
 export function newMillState() {
-  const s = { prog: '2001', title: '', stock: { x: 100, y: 80, z: 20 }, material: 'AL', maxRpm: 8100, coolant: 'M08', safeZ: 50, base: 6, ops: [] };
+  const s = { prog: '2001', title: '', stock: { x: 100, y: 80, z: 20 }, material: 'AL', maxRpm: 8100, coolant: 'M08', safeZ: 50, base: 6, wcs: 'G54', ops: [] };
   s.tools = defaultMillTools(s.material);
   return s;
 }
@@ -102,6 +105,8 @@ function screenDetal() {
       ${num('Długość L', 'stock.l', s.stock.l, { step: 1, min: 5, max: 406 })}
       ${num('Min ⌀ detalu', 'stock.dmin', s.stock.dmin, { step: 0.5, min: 0 })}
     </div>
+    <div class="sec">Układ współrzędnych <span class="sp"></span><small>${app.post && app.post.wcsExt ? 'NGC: G154 P1–P99' : 'Classic: G54–G59'}</small></div>
+    <div class="card grid g2">${sel('Układ', 'wcs', s.wcs || 'G54', wcsOptions(app.post || {}), { type: 'str' })}</div>
     <div class="sec">Maszyna — Haas SL-20T</div>
     <div class="card grid g3">
       ${num('Max RPM (G50)', 'maxRpm', s.maxRpm, { step: 100, min: 100, max: 4000 })}
@@ -115,7 +120,12 @@ function screenDetal() {
       ${num('Y szerokość', 'stock.y', s.stock.y, { step: 1, min: 1 })}
       ${num('Z wysokość', 'stock.z', s.stock.z, { step: 1, min: 1 })}
     </div>
-    <div class="sec">Punkt bazy G54 <span class="sp"></span><small>Z0 = góra detalu</small></div>
+    <div class="sec">Układ współrzędnych <span class="sp"></span><small>${app.post && app.post.wcsExt ? 'NGC: dostępne G154 P1–P99' : 'Classic: G54–G59'}</small></div>
+    <div class="card grid g2">
+      ${sel('Układ', 'wcs', s.wcs || 'G54', wcsOptions(app.post || {}), { type: 'str' })}
+      ${sel('Zapis pomiaru sondą', 'probeInfo', 'x', [['x', 'S' + (String(s.wcs || 'G54').replace(/^G154P(\d+)$/, (m, n) => '154.' + String(n).padStart(2, '0')).replace(/^G(\d+)$/, '$1.'))]], { type: 'str' })}
+    </div>
+    <div class="sec">Punkt bazy <span class="sp"></span><small>Z0 = góra detalu</small></div>
     <div class="card"><div class="base-grid">${BASES.map((b) => `<button data-act="base" data-i="${b.i}" class="${b.i === s.base ? 'on' : ''}" title="${b.t}">${b.n}</button>`).join('')}</div></div>
     <div class="sec">Maszyna — Haas VF</div>
     <div class="card grid g3">
@@ -161,6 +171,16 @@ function opFields(op) {
       case 'drill': return T + VF + N('⌀ wiertła', 'fi', { step: 0.5, min: 1 }) + N('Głębokość', 'depth', { step: 1, min: 1 }) + N('Peck mm', 'peck', { step: 1, min: 0.5 }) + sel('Cykl', P('cycle'), op.cycle, [['G83', 'G83 pełny peck'], ['G74', 'G74 łamanie wióra']], { type: 'str' });
       case 'cutoff': return T + VF + N('Z odcięcia', 'z', { step: 1 }) + N('Szer. płytki', 'w', { step: 0.5, min: 1 });
     }
+  } else if (isProbeOp(op.type)) {
+    const d = PROBE_OPS[op.type];
+    let f = T + N('Start X', 'sx', { step: 1 }) + N('Start Y', 'sy', { step: 1 }) + N('Z pomiaru', 'sz', { step: 0.5 }) + N('Odjazd Z', 'approach', { step: 1, min: 1 });
+    if (d.needs.includes('d')) f += N('⌀ nominalna', 'd', { step: 0.5, min: 0.5 });
+    if (d.needs.includes('x')) f += N('Szer. X nom.', 'x', { step: 0.5, min: 0.5 });
+    if (d.needs.includes('y')) f += N('Szer. Y nom.', 'y', { step: 0.5, min: 0.5 });
+    if (d.needs.includes('z')) f += N('Z elementu', 'z', { step: 0.5 });
+    f += N('Tolerancja H', 'tol', { step: 0.01, min: 0 });
+    f += sel('Zapis wyniku', P('update'), op.update === false ? '0' : '1', [['1', 'zapisz do układu'], ['0', 'tylko pomiar']], { type: 'bool' });
+    return f;
   } else {
     const ZT = N('Z docel.', 'zt', { step: 0.5, max: 0 }), AP = N('ap mm', 'ap', { step: 0.5, min: 0.1 });
     const RECT = N('X1', 'x1', { step: 1 }) + N('Y1', 'y1', { step: 1 }) + N('X2', 'x2', { step: 1 }) + N('Y2', 'y2', { step: 1 });
@@ -212,8 +232,18 @@ function screenOps() {
       <div class="op-b">${opFields(op)}</div>
     </div>`;
   }).join('') : '<div class="empty">Brak operacji — dodaj pierwszą przyciskami poniżej</div>';
-  const add = Object.entries(O).map(([k, v]) => `<button data-act="op-add" data-type="${k}" style="--c:${v.color}">+ ${v.label}</button>`).join('');
-  return `${previewHtml()}<div class="sec">Operacje <span class="sp"></span><small>${s.ops.length} op. · ${app.gc ? app.gc.time.total.toFixed(1) + ' min' : ''}</small></div>${list}<div class="add-bar">${add}</div>`;
+  const cut = Object.entries(O).filter(([k]) => !isProbeOp(k));
+  const probe = Object.entries(O).filter(([k]) => isProbeOp(k));
+  const btns = (arr) => arr.map(([k, v]) => `<button data-act="op-add" data-type="${k}" style="--c:${v.color}">+ ${v.label}</button>`).join('');
+  const probeBar = probe.length ? `<div class="sec">Pomiar sondą <span class="sp"></span><small>Renishaw G65 P9023</small></div><div class="add-bar">${btns(probe)}</div>` : '';
+  return `${previewHtml()}
+    <div class="sec">Operacje <span class="sp"></span>
+      <button class="btn sm" data-act="ops-collapse">${Object.keys(app.ui.collapsed).length ? '⌄ Rozwiń' : '⌃ Zwiń'}</button>
+      <small>${s.ops.length} op. · ${app.gc ? app.gc.time.total.toFixed(1) + ' min' : ''}</small></div>
+    ${list}
+    <div class="sec">Dodaj obróbkę</div>
+    <div class="add-bar">${btns(cut)}</div>
+    ${probeBar}`;
 }
 
 function screenTools() {
@@ -270,6 +300,7 @@ function screenGcode() {
       <button class="btn ok" data-act="gc-share">⇪ Udostępnij .NC</button>
       <button class="btn" data-act="gc-download">⤓ Pobierz .NC</button>
       <button class="btn ${app.ui.gcView === 'plot' ? 'primary' : ''}" data-act="gc-view">${app.ui.gcView === 'plot' ? '⌨ Kod' : '◎ Backplot'}</button>
+      <button class="btn" data-act="sheet">🗒 Karta ustawcza</button>
     </div>
     ${app.ui.gcView === 'plot' ? previewHtml().replace('class="preview', 'class="preview tall') : `<div class="gc-wrap"><div class="gc" id="gc-text">${code}</div></div>`}`;
 }
@@ -319,7 +350,20 @@ function refresh() {
 let autosaveT;
 function autosave() { clearTimeout(autosaveT); autosaveT = setTimeout(() => storage.set('draft', { machine: app.machine, lathe: app.lathe, mill: app.mill, projectId: app.projectId, projectName: app.projectName }), 400); }
 
-export function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2300); }
+export function toast(msg, action) {
+  document.querySelectorAll('.toast').forEach((x) => x.remove());
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  if (action) {
+    const b = document.createElement('button');
+    b.textContent = action.label; b.dataset.act = action.act;
+    t.appendChild(b);
+  }
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), action ? 6000 : 2300);
+}
+function buzz(ms = 8) { try { navigator.vibrate && navigator.vibrate(ms); } catch {} }
 
 // ─── zdarzenia ──────────────────────────────────────────────────────────────
 function onInput(e) {
@@ -345,6 +389,7 @@ function onClick(e) {
     if (inp.min !== '' && v < parseFloat(inp.min)) v = parseFloat(inp.min);
     if (inp.max !== '' && v > parseFloat(inp.max)) v = parseFloat(inp.max);
     inp.value = +v.toFixed(3);
+    buzz();
     inp.dispatchEvent(new Event('input', { bubbles: true }));
     return;
   }
@@ -356,11 +401,25 @@ function onClick(e) {
     case 'nav': app.screen = b.dataset.s; app.ui.big = false; render(); break;
     case 'machine': app.machine = b.dataset.m; app.ui.big = false; render(); autosave(); break;
     case 'theme': app.theme = app.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = app.theme; storage.set('theme', app.theme); render(); break;
-    case 'post-import': case 'post-export': case 'post-delete': case 'post-reset':
+    case 'post-import': case 'post-export': case 'post-delete': case 'post-reset': case 'ctrl-pick':
       settingsAction(a, b, app, render, toast); break;
     case 'base': s.base = parseInt(b.dataset.i, 10); render(); break;
     case 'op-add': { const op = { id: ++app.opId, ...(isLathe() ? defaultLatheOp(b.dataset.type, s) : defaultMillOp(b.dataset.type, s)) }; s.ops.push(op); render(); setTimeout(() => document.querySelector(`[data-opid="${op.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50); break; }
-    case 'op-del': s.ops.splice(opIdx, 1); render(); break;
+    case 'op-del': {
+      app.undo = { op: JSON.parse(JSON.stringify(s.ops[opIdx])), idx: opIdx, machine: app.machine };
+      s.ops.splice(opIdx, 1); render();
+      toast('Usunięto operację', { label: 'Cofnij', act: 'op-undo' });
+      break;
+    }
+    case 'op-undo': {
+      if (app.undo && app.undo.machine === app.machine) { cur().ops.splice(app.undo.idx, 0, app.undo.op); app.undo = null; render(); }
+      break;
+    }
+    case 'ops-collapse': {
+      if (Object.keys(app.ui.collapsed).length) app.ui.collapsed = {};
+      else s.ops.forEach((o) => { app.ui.collapsed[o.id] = true; });
+      render(); break;
+    }
     case 'op-dup': { const c = JSON.parse(JSON.stringify(s.ops[opIdx])); c.id = ++app.opId; delete c._ns; delete c._ne; s.ops.splice(opIdx + 1, 0, c); render(); break; }
     case 'op-up': if (opIdx > 0) { [s.ops[opIdx - 1], s.ops[opIdx]] = [s.ops[opIdx], s.ops[opIdx - 1]]; render(); } break;
     case 'op-down': if (opIdx < s.ops.length - 1) { [s.ops[opIdx + 1], s.ops[opIdx]] = [s.ops[opIdx], s.ops[opIdx + 1]]; render(); } break;
@@ -376,6 +435,15 @@ function onClick(e) {
     case 'gc-share': exportNc(app, 'share'); break;
     case 'gc-download': exportNc(app, 'download'); break;
     case 'gc-view': app.ui.gcView = app.ui.gcView === 'plot' ? 'code' : 'plot'; render(); break;
+    case 'sheet': {
+      const wasPlot = app.ui.gcView;
+      if (wasPlot !== 'plot') { app.ui.gcView = 'plot'; render(); }
+      setTimeout(() => {
+        openSetupSheet(app, navigator.share ? 'share' : 'print');
+        if (wasPlot !== 'plot') { app.ui.gcView = wasPlot; render(); }
+      }, 120);
+      break;
+    }
     case 'proj-save': saveProject(); break;
     case 'proj-open': openProjects(); break;
     case 'proj-new': if (confirm('Nowy projekt? Niezapisane zmiany przepadną.')) { app[app.machine] = isLathe() ? newLatheState() : newMillState(); app.projectId = null; app.projectName = ''; render(); } break;
