@@ -11,6 +11,7 @@ import { renderSettings, bindSettings, settingsAction, activePost, customPosts }
 import { isProbeOp, PROBE_OPS } from '../core/probe.js';
 import { wcsOptions, withDefaults } from '../core/posts.js';
 import { openSetupSheet } from './setup-sheet.js';
+import { t, locale, setLang, setCommentLang } from '../i18n/index.js';
 
 // ─── stan ───────────────────────────────────────────────────────────────────
 export function newLatheState() {
@@ -41,18 +42,18 @@ function setPath(obj, path, v) { const ks = path.split('.'); const last = ks.pop
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 export function num(label, path, val, o = {}) {
   const step = o.step ?? 1;
-  return `<div class="fl ${o.cls || ''}"><label>${label}</label><div class="num">
+  return `<div class="fl ${o.cls || ''}"><label>${t(label)}</label><div class="num">
     <input type="number" inputmode="decimal" data-path="${path}" value="${val ?? ''}" step="${step}" ${o.min != null ? `min="${o.min}"` : ''} ${o.max != null ? `max="${o.max}"` : ''}>
     <button type="button" data-step="-1" tabindex="-1">−</button><button type="button" data-step="1" tabindex="-1">+</button></div></div>`;
 }
 export function sel(label, path, val, opts, o = {}) {
-  return `<div class="fl ${o.cls || ''}"><label>${label}</label><select data-path="${path}" ${o.type ? `data-type="${o.type}"` : ''}>${opts.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(val) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>`;
+  return `<div class="fl ${o.cls || ''}"><label>${t(label)}</label><select data-path="${path}" ${o.type ? `data-type="${o.type}"` : ''}>${opts.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(val) ? 'selected' : ''}>${esc(o.raw ? l : t(l))}</option>`).join('')}</select></div>`;
 }
 function txt(label, path, val, o = {}) {
-  return `<div class="fl ${o.cls || ''}"><label>${label}</label><input type="text" data-path="${path}" data-type="str" value="${esc(val)}" ${o.ph ? `placeholder="${o.ph}"` : ''}></div>`;
+  return `<div class="fl ${o.cls || ''}"><label>${t(label)}</label><input type="text" data-path="${path}" data-type="str" value="${esc(val)}" ${o.ph ? `placeholder="${esc(t(o.ph))}"` : ''}></div>`;
 }
-const matOpts = () => MATERIAL_KEYS.map((k) => [k, MATERIALS[k].name]);
-const toolOpts = () => cur().tools.map((t) => [t.no, `T${String(t.no).padStart(2, '0')} ${t.type || '— puste —'}${t.d ? ' D' + t.d : ''}`]);
+const matOpts = () => MATERIAL_KEYS.map((k) => [k, t(MATERIALS[k].name)]);
+const toolOpts = () => cur().tools.map((x) => [x.no, `T${String(x.no).padStart(2, '0')} ${x.type ? t(x.type) : t('— puste —')}${x.d ? ' D' + x.d : ''}`]);
 
 // ─── obliczenia ─────────────────────────────────────────────────────────────
 export function compute() {
@@ -71,12 +72,12 @@ function previewHtml() {
   return `<div class="preview ${app.ui.big ? 'big' : ''}" id="pv">
     <svg id="pv-svg" xmlns="http://www.w3.org/2000/svg"></svg>
     <div class="pv-bar">
-      <button data-act="pv-bp" class="${app.ui.backplot ? 'on' : ''}">ścieżka</button>
+      <button data-act="pv-bp" class="${app.ui.backplot ? 'on' : ''}">${t('ścieżka')}</button>
       ${isLathe() ? '' : `<button data-act="pv-side" class="${app.ui.side ? 'on' : ''}">XZ</button>`}
       <button data-act="pv-fit">⤢</button>
       <button data-act="pv-big">${app.ui.big ? '✕' : '⛶'}</button>
     </div>
-    <div class="pv-legend"><span><i style="border-color:#00c8a0"></i>posuw</span><span><i style="border-color:#f85149;border-style:dashed"></i>szybki</span>${isLathe() ? '<span><i style="border-color:#ffd166"></i>G70</span>' : ''}</div>
+    <div class="pv-legend"><span><i style="border-color:#00c8a0"></i>${t('posuw')}</span><span><i style="border-color:#f85149;border-style:dashed"></i>${t('szybki')}</span>${isLathe() ? '<span><i style="border-color:#ffd166"></i>G70</span>' : ''}</div>
   </div>`;
 }
 export function drawPreview(keepView = true) {
@@ -92,67 +93,67 @@ function screenDetal() {
   const s = cur();
   const m = getMaterial(s.material);
   const common = `
-    <div class="sec">Program</div>
+    <div class="sec">${t('Program')}</div>
     <div class="card grid g3 narrow">
       ${txt('Numer O', 'prog', s.prog)}
       ${txt('Nazwa / detal', 'title', s.title, { ph: 'np. TULEJA 1234', cls: 'wide' })}
-      ${sel('Materiał', 'material', s.material, matOpts(), { type: 'mat' })}
+      ${sel('Materiał', 'material', s.material, matOpts(), { type: 'mat', raw: true })}
     </div>`;
   const lathe = `
-    <div class="sec">Surówka <span class="sp"></span><small>⌀ × długość, min ⌀ = najmniejsza średnica detalu</small></div>
+    <div class="sec">${t('Surówka')} <span class="sp"></span><small>${t('⌀ × długość, min ⌀ = najmniejsza średnica detalu')}</small></div>
     <div class="card grid g3">
       ${num('Surówka ⌀', 'stock.d', s.stock.d, { step: 0.5, min: 1, max: 254 })}
       ${num('Długość L', 'stock.l', s.stock.l, { step: 1, min: 5, max: 406 })}
       ${num('Min ⌀ detalu', 'stock.dmin', s.stock.dmin, { step: 0.5, min: 0 })}
     </div>
-    <div class="sec">Układ współrzędnych <span class="sp"></span><small>${app.post && app.post.wcsExt ? 'NGC: G154 P1–P99' : 'Classic: G54–G59'}</small></div>
-    <div class="card grid g2">${sel('Układ', 'wcs', s.wcs || 'G54', wcsOptions(app.post || {}), { type: 'str' })}</div>
-    <div class="sec">Maszyna — Haas SL-20T</div>
+    <div class="sec">${t('Układ współrzędnych')} <span class="sp"></span><small>${app.post && app.post.wcsExt ? 'NGC: G154 P1–P99' : 'Classic: G54–G59'}</small></div>
+    <div class="card grid g2">${sel('Układ', 'wcs', s.wcs || 'G54', wcsOptions(app.post || {}), { type: 'str', raw: true })}</div>
+    <div class="sec">${t('Maszyna — Haas SL-20T')}</div>
     <div class="card grid g3">
       ${num('Max RPM (G50)', 'maxRpm', s.maxRpm, { step: 100, min: 100, max: 4000 })}
       ${sel('Chłodzenie', 'coolant', s.coolant, [['M08', 'M08 emulsja'], ['M88', 'M88 powietrze'], ['', 'brak']], { type: 'str' })}
       ${sel('Konik', 'tailstock', s.tailstock ? '1' : '0', [['0', 'brak'], ['1', 'M23/M24']], { type: 'bool' })}
     </div>`;
   const mill = `
-    <div class="sec">Detal (prostopadłościan)</div>
+    <div class="sec">${t('Detal (prostopadłościan)')}</div>
     <div class="card grid g3">
       ${num('X długość', 'stock.x', s.stock.x, { step: 1, min: 1 })}
       ${num('Y szerokość', 'stock.y', s.stock.y, { step: 1, min: 1 })}
       ${num('Z wysokość', 'stock.z', s.stock.z, { step: 1, min: 1 })}
     </div>
-    <div class="sec">Układ współrzędnych <span class="sp"></span><small>${app.post && app.post.wcsExt ? 'NGC: dostępne G154 P1–P99' : 'Classic: G54–G59'}</small></div>
+    <div class="sec">${t('Układ współrzędnych')} <span class="sp"></span><small>${app.post && app.post.wcsExt ? t('NGC: dostępne G154 P1–P99') : 'Classic: G54–G59'}</small></div>
     <div class="card grid g2">
-      ${sel('Układ', 'wcs', s.wcs || 'G54', wcsOptions(app.post || {}), { type: 'str' })}
-      ${sel('Zapis pomiaru sondą', 'probeInfo', 'x', [['x', 'S' + (String(s.wcs || 'G54').replace(/^G154P(\d+)$/, (m, n) => '154.' + String(n).padStart(2, '0')).replace(/^G(\d+)$/, '$1.'))]], { type: 'str' })}
+      ${sel('Układ', 'wcs', s.wcs || 'G54', wcsOptions(app.post || {}), { type: 'str', raw: true })}
+      ${sel('Zapis pomiaru sondą', 'probeInfo', 'x', [['x', 'S' + (String(s.wcs || 'G54').replace(/^G154P(\d+)$/, (m, n) => '154.' + String(n).padStart(2, '0')).replace(/^G(\d+)$/, '$1.'))]], { type: 'str', raw: true })}
     </div>
-    <div class="sec">Punkt bazy <span class="sp"></span><small>Z0 = góra detalu</small></div>
-    <div class="card"><div class="base-grid">${BASES.map((b) => `<button data-act="base" data-i="${b.i}" class="${b.i === s.base ? 'on' : ''}" title="${b.t}">${b.n}</button>`).join('')}</div></div>
-    <div class="sec">Maszyna — Haas VF</div>
+    <div class="sec">${t('Punkt bazy')} <span class="sp"></span><small>${t('Z0 = góra detalu')}</small></div>
+    <div class="card"><div class="base-grid">${BASES.map((b) => `<button data-act="base" data-i="${b.i}" class="${b.i === s.base ? 'on' : ''}" title="${t(b.t)}">${b.n}</button>`).join('')}</div></div>
+    <div class="sec">${t('Maszyna — Haas VF')}</div>
     <div class="card grid g3">
       ${num('Max RPM', 'maxRpm', s.maxRpm, { step: 100, min: 100, max: 15000 })}
       ${sel('Chłodzenie', 'coolant', s.coolant, [['M08', 'M08 emulsja'], ['M07', 'M07 mgła'], ['M88', 'M88 TSC'], ['', 'brak']], { type: 'str' })}
       ${num('Bezpieczne Z', 'safeZ', s.safeZ, { step: 5, min: 5 })}
     </div>`;
   return `${previewHtml()}${common}${isLathe() ? lathe : mill}
-    <div class="sec">Materiał — parametry bazowe <span class="sp"></span><small>${esc(m.name)}, grupa ISO ${m.group}</small></div>
+    <div class="sec">${t('Materiał — parametry bazowe')} <span class="sp"></span><small>${esc(t(m.name))}, ${t('grupa ISO')} ${m.group}</small></div>
     <div class="card kv">${isLathe()
-      ? `<span>Vc zgrubne</span><b>${m.turn.vc_r}</b> m/min<br><span>Vc wykończ.</span><b>${m.turn.vc_fn}</b> m/min<br><span>f zgrubne</span><b>${m.turn.f_r}</b> mm/obr<br><span>f wykończ.</span><b>${m.turn.f_fn}</b> mm/obr<br><span>Vc gwint</span><b>${m.turn.vc_th}</b> m/min<br><span>Vc wiercenie</span><b>${m.turn.vc_dr}</b> m/min`
-      : `<span>Vc frezowanie</span><b>${m.mill.vc}</b> m/min<br><span>fz</span><b>${m.mill.fz}</b> mm/ząb<br><span>ap / ae</span><b>${m.mill.ap}</b> mm / <b>${Math.round(m.mill.ae * 100)}</b> %D<br><span>Vc wiercenie</span><b>${m.mill.vcD}</b> m/min<br><span>f wiercenie</span><b>${m.mill.fzD}</b> mm/obr<br><span>Vc gwintownik</span><b>${m.mill.vcT}</b> m/min`}
+      ? `<span>${t('Vc zgrubne')}</span><b>${m.turn.vc_r}</b> m/min<br><span>${t('Vc wykończ.')}</span><b>${m.turn.vc_fn}</b> m/min<br><span>${t('f zgrubne')}</span><b>${m.turn.f_r}</b> ${t('mm/obr')}<br><span>${t('f wykończ.')}</span><b>${m.turn.f_fn}</b> ${t('mm/obr')}<br><span>${t('Vc gwint')}</span><b>${m.turn.vc_th}</b> m/min<br><span>${t('Vc wiercenie')}</span><b>${m.turn.vc_dr}</b> m/min`
+      : `<span>${t('Vc frezowanie')}</span><b>${m.mill.vc}</b> m/min<br><span>fz</span><b>${m.mill.fz}</b> ${t('mm/ząb')}<br><span>ap / ae</span><b>${m.mill.ap}</b> mm / <b>${Math.round(m.mill.ae * 100)}</b> %D<br><span>${t('Vc wiercenie')}</span><b>${m.mill.vcD}</b> m/min<br><span>${t('f wiercenie')}</span><b>${m.mill.fzD}</b> ${t('mm/obr')}<br><span>${t('Vc gwintownik')}</span><b>${m.mill.vcT}</b> m/min`}
       <br><span>kc1 / mc</span><b>${m.kc1}</b> N/mm² / <b>${m.mc}</b>
     </div>
-    <div class="sec">Projekt</div>
+    <div class="sec">${t('Projekt')}</div>
     <div class="card row">
-      <button class="btn primary" data-act="proj-save">💾 Zapisz</button>
-      <button class="btn" data-act="proj-open">📂 Otwórz</button>
-      <button class="btn" data-act="proj-new">✚ Nowy</button>
-      <span class="muted mono" style="font-size:11px">${app.projectName ? esc(app.projectName) : 'niezapisany'}</span>
+      <button class="btn primary" data-act="proj-save">💾 ${t('Zapisz')}</button>
+      <button class="btn" data-act="proj-open">📂 ${t('Otwórz')}</button>
+      <button class="btn" data-act="proj-new">✚ ${t('Nowy')}</button>
+      <span class="muted mono" style="font-size:11px">${app.projectName ? esc(app.projectName) : t('niezapisany')}</span>
     </div>`;
 }
 
 function opFields(op) {
   const id = `ops.${cur().ops.indexOf(op)}`;
   const P = (k) => `${id}.${k}`;
-  const T = sel('Narzędzie', P('tool'), op.tool, toolOpts(), { type: 'int' });
+  const T = sel('Narzędzie', P('tool'), op.tool, toolOpts(), { type: 'int', raw: true });
   const N = (l, k, o) => num(l, P(k), op[k], o);
   if (isLathe()) {
     const VF = N('Vc m/min', 'vc', { step: 5, min: 5 }) + N('f mm/obr', 'f', { step: 0.01, min: 0.005 });
@@ -161,7 +162,7 @@ function opFields(op) {
       case 'rough': return T + VF + N('ap mm', 'ap', { step: 0.25, min: 0.25 }) + N('Nadd. X', 'sx', { step: 0.05, min: 0 }) + N('Nadd. Z', 'sz', { step: 0.05, min: 0 }) + profileTable(op, id);
       case 'finish': {
         const roughs = cur().ops.filter((o) => o.type === 'rough');
-        return T + VF + sel('Profil z G71', P('ref'), op.ref ?? '', [['', 'poprzedni G71'], ...roughs.map((r) => [r.id, 'OP ' + (cur().ops.indexOf(r) + 1)])], { type: 'int' });
+        return T + VF + sel('Profil z G71', P('ref'), op.ref ?? '', [['', t('poprzedni G71')], ...roughs.map((r) => [r.id, 'OP ' + (cur().ops.indexOf(r) + 1)])], { type: 'int', raw: true });
       }
       case 'turn': return T + VF + N('X końc. ⌀', 'x', { step: 0.5, min: 0 }) + N('Z końc.', 'z', { step: 1 }) + N('ap mm', 'ap', { step: 0.25, min: 0.25 });
       case 'taper': return T + VF + N('X1 ⌀', 'x1', { step: 0.5, min: 0 }) + N('Z1', 'z1', { step: 1 }) + N('X2 ⌀', 'x2', { step: 0.5, min: 0 }) + N('Z2', 'z2', { step: 1 });
@@ -212,8 +213,8 @@ function profileTable(op, id) {
     <td><input type="number" inputmode="decimal" step="0.5" min="0" data-path="${id}.profile.${i}.c" value="${p.c || 0}"></td>
     <td><input type="number" inputmode="decimal" step="0.5" min="0" data-path="${id}.profile.${i}.r" value="${p.r || 0}"></td>
     <td><button type="button" data-act="prof-del" data-op="${op.id}" data-i="${i}">✕</button></td></tr>`).join('');
-  return `<div class="wide"><table class="prof-table"><thead><tr><th>#</th><th>X ⌀</th><th>Z</th><th>faza C</th><th>prom. R</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="row" style="margin-top:6px"><button class="btn sm" data-act="prof-add" data-op="${op.id}">+ punkt</button><span class="muted" style="font-size:11px">profil od czoła (Z0) w głąb; C/R w punkcie = naroże za tym punktem</span></div></div>`;
+  return `<div class="wide"><table class="prof-table"><thead><tr><th>#</th><th>X ⌀</th><th>Z</th><th>${t('faza C')}</th><th>${t('prom. R')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="row" style="margin-top:6px"><button class="btn sm" data-act="prof-add" data-op="${op.id}">+ ${t('punkt')}</button><span class="muted" style="font-size:11px">${t('profil od czoła (Z0) w głąb; C/R w punkcie = naroże za tym punktem')}</span></div></div>`;
 }
 
 function screenOps() {
@@ -223,25 +224,25 @@ function screenOps() {
     const col = app.ui.collapsed[op.id];
     return `<div class="op ${col ? 'collapsed' : ''}" style="--opc:${d.color}" data-opid="${op.id}">
       <div class="op-h" data-act="op-toggle" data-op="${op.id}">
-        <span class="idx">${i + 1}</span><span class="name">${d.full}</span>
+        <span class="idx">${i + 1}</span><span class="name">${esc(t(d.full))}</span>
         <span class="ttag">T${String(op.tool).padStart(2, '0')}</span>
         <button data-act="op-up" data-op="${op.id}">↑</button><button data-act="op-down" data-op="${op.id}">↓</button>
-        <button data-act="op-dup" data-op="${op.id}" title="duplikuj">⧉</button>
+        <button data-act="op-dup" data-op="${op.id}" title="${t('duplikuj')}">⧉</button>
         <button class="x" data-act="op-del" data-op="${op.id}">✕</button>
       </div>
       <div class="op-b">${opFields(op)}</div>
     </div>`;
-  }).join('') : '<div class="empty">Brak operacji — dodaj pierwszą przyciskami poniżej</div>';
+  }).join('') : `<div class="empty">${t('Brak operacji — dodaj pierwszą przyciskami poniżej')}</div>`;
   const cut = Object.entries(O).filter(([k]) => !isProbeOp(k));
   const probe = Object.entries(O).filter(([k]) => isProbeOp(k));
-  const btns = (arr) => arr.map(([k, v]) => `<button data-act="op-add" data-type="${k}" style="--c:${v.color}">+ ${v.label}</button>`).join('');
-  const probeBar = probe.length ? `<div class="sec">Pomiar sondą <span class="sp"></span><small>Renishaw G65 P9023</small></div><div class="add-bar">${btns(probe)}</div>` : '';
+  const btns = (arr) => arr.map(([k, v]) => `<button data-act="op-add" data-type="${k}" style="--c:${v.color}">+ ${esc(t(v.label))}</button>`).join('');
+  const probeBar = probe.length ? `<div class="sec">${t('Pomiar sondą')} <span class="sp"></span><small>Renishaw G65 P9023</small></div><div class="add-bar">${btns(probe)}</div>` : '';
   return `${previewHtml()}
-    <div class="sec">Operacje <span class="sp"></span>
-      <button class="btn sm" data-act="ops-collapse">${Object.keys(app.ui.collapsed).length ? '⌄ Rozwiń' : '⌃ Zwiń'}</button>
+    <div class="sec">${t('Operacje')} <span class="sp"></span>
+      <button class="btn sm" data-act="ops-collapse">${Object.keys(app.ui.collapsed).length ? '⌄ ' + t('Rozwiń') : '⌃ ' + t('Zwiń')}</button>
       <small>${s.ops.length} op. · ${app.gc ? app.gc.time.total.toFixed(1) + ' min' : ''}</small></div>
     ${list}
-    <div class="sec">Dodaj obróbkę</div>
+    <div class="sec">${t('Dodaj obróbkę')}</div>
     <div class="add-bar">${btns(cut)}</div>
     ${probeBar}`;
 }
@@ -249,23 +250,24 @@ function screenOps() {
 function screenTools() {
   const s = cur(), used = new Set(s.ops.map((o) => o.tool));
   const types = isLathe() ? LATHE_TOOL_TYPES : MILL_TOOL_TYPES;
+  const tr = t;
   const rows = s.tools.map((t, i) => {
     const P = (k) => `tools.${i}.${k}`;
     const fields = isLathe()
-      ? `<div><label>typ</label><select data-path="${P('type')}" data-type="str"><option value="">— puste —</option>${types.map((x) => `<option ${x === t.type ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+      ? `<div><label>${tr('typ')}</label><select data-path="${P('type')}" data-type="str"><option value="">${tr('— puste —')}</option>${types.map((x) => `<option value="${esc(x)}" ${x === t.type ? 'selected' : ''}>${esc(tr(x))}</option>`).join('')}</select></div>
          <div><label>Vc</label><input type="number" inputmode="decimal" step="5" data-path="${P('vc')}" value="${t.vc}"></div>
          <div><label>f</label><input type="number" inputmode="decimal" step="0.01" data-path="${P('f')}" value="${t.f}"></div>
          <div><label>ap</label><input type="number" inputmode="decimal" step="0.1" data-path="${P('ap')}" value="${t.ap}"></div>
-         <div><label>${/rowk|odcin/i.test(t.type) ? 'szer' : 'rε'}</label><input type="number" inputmode="decimal" step="0.1" data-path="${P(/rowk|odcin/i.test(t.type) ? 'w' : 'r')}" value="${/rowk|odcin/i.test(t.type) ? (t.w ?? 3) : (t.r ?? 0.4)}"></div>`
-      : `<div><label>typ</label><select data-path="${P('type')}" data-type="str"><option value="">— puste —</option>${types.map((x) => `<option ${x === t.type ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+         <div><label>${/rowk|odcin/i.test(t.type) ? tr('szer') : 'rε'}</label><input type="number" inputmode="decimal" step="0.1" data-path="${P(/rowk|odcin/i.test(t.type) ? 'w' : 'r')}" value="${/rowk|odcin/i.test(t.type) ? (t.w ?? 3) : (t.r ?? 0.4)}"></div>`
+      : `<div><label>${tr('typ')}</label><select data-path="${P('type')}" data-type="str"><option value="">${tr('— puste —')}</option>${types.map((x) => `<option value="${esc(x)}" ${x === t.type ? 'selected' : ''}>${esc(tr(x))}</option>`).join('')}</select></div>
          <div><label>D</label><input type="number" inputmode="decimal" step="0.1" data-path="${P('d')}" value="${t.d}"></div>
          <div><label>z</label><input type="number" inputmode="numeric" step="1" data-path="${P('z')}" value="${t.z}"></div>
          <div><label>Vc</label><input type="number" inputmode="decimal" step="5" data-path="${P('vc')}" value="${t.vc}"></div>
          <div><label>fz</label><input type="number" inputmode="decimal" step="0.01" data-path="${P('fz')}" value="${t.fz}"></div>`;
     return `<div class="tool ${used.has(t.no) ? 'used' : ''} ${t.type ? '' : 'empty'}"><div class="tn">T${String(t.no).padStart(2, '0')}</div><div class="tf">${fields}</div></div>`;
   }).join('');
-  return `<div class="sec">Magazyn narzędzi — ${s.tools.length} pozycji <span class="sp"></span><small>${isLathe() ? 'Vc m/min · f mm/obr · ap mm · rε mm' : 'D mm · z zęby · Vc m/min · fz mm/ząb'}</small></div>
-    <div class="row" style="margin-bottom:8px"><button class="btn sm" data-act="tools-preset">↻ Preset dla ${esc(getMaterial(s.material).name.split(' ')[0])}</button><span class="muted" style="font-size:11px">niebieskie = użyte w operacjach</span></div>
+  return `<div class="sec">${t('Magazyn narzędzi — {n} pozycji', { n: s.tools.length })} <span class="sp"></span><small>${isLathe() ? t('Vc m/min · f mm/obr · ap mm · rε mm') : t('D mm · z zęby · Vc m/min · fz mm/ząb')}</small></div>
+    <div class="row" style="margin-bottom:8px"><button class="btn sm" data-act="tools-preset">↻ ${t('Preset dla {m}', { m: esc(t(getMaterial(s.material).name).split(' ')[0]) })}</button><span class="muted" style="font-size:11px">${t('niebieskie = użyte w operacjach')}</span></div>
     <div class="card" style="padding:0 10px">${rows}</div>`;
 }
 
@@ -287,20 +289,20 @@ function screenGcode() {
   const g = app.gc || compute();
   const s = cur();
   const stats = `<div class="stat">
-    <div class="k"><b>${g.lines.length}</b><span>linii</span></div>
-    <div class="k"><b>${g.time.total.toFixed(1)}</b><span>min szac.</span></div>
-    <div class="k"><b>${g.time.toolChanges}</b><span>zmian narz.</span></div>
-    <div class="k"><b>${s.ops.length}</b><span>operacji</span></div></div>`;
+    <div class="k"><b>${g.lines.length}</b><span>${t('linii')}</span></div>
+    <div class="k"><b>${g.time.total.toFixed(1)}</b><span>${t('min szac.')}</span></div>
+    <div class="k"><b>${g.time.toolChanges}</b><span>${t('zmian narz.')}</span></div>
+    <div class="k"><b>${s.ops.length}</b><span>${t('operacji')}</span></div></div>`;
   const warn = g.warnings.length ? `<div class="warn-box">${g.warnings.map((w) => `<div>⚠ ${esc(w)}</div>`).join('')}</div>` : '';
   const code = g.lines.map((l) => `<span class="ln ${/\(!/.test(l) ? 'warn' : ''}">${highlight(l)}</span>`).join('');
-  return `<div class="sec">G-kod — O${esc(String(s.prog).padStart(4, '0'))} <span class="sp"></span><button class="btn sm" data-act="nav" data-s="settings" style="font-family:var(--mono);font-size:11px">⚙ ${esc((app.post || {}).name || 'post')}</button></div>
+  return `<div class="sec">${t('G-kod')} — O${esc(String(s.prog).padStart(4, '0'))} <span class="sp"></span><button class="btn sm" data-act="nav" data-s="settings" style="font-family:var(--mono);font-size:11px">⚙ ${esc((app.post || {}).name || 'post')}</button></div>
     ${stats}${warn}
     <div class="row" style="margin-bottom:8px">
-      <button class="btn primary" data-act="gc-copy">⧉ Kopiuj</button>
-      <button class="btn ok" data-act="gc-share">⇪ Udostępnij .NC</button>
-      <button class="btn" data-act="gc-download">⤓ Pobierz .NC</button>
-      <button class="btn ${app.ui.gcView === 'plot' ? 'primary' : ''}" data-act="gc-view">${app.ui.gcView === 'plot' ? '⌨ Kod' : '◎ Backplot'}</button>
-      <button class="btn" data-act="sheet">🗒 Karta ustawcza</button>
+      <button class="btn primary" data-act="gc-copy">⧉ ${t('Kopiuj')}</button>
+      <button class="btn ok" data-act="gc-share">⇪ ${t('Udostępnij .NC')}</button>
+      <button class="btn" data-act="gc-download">⤓ ${t('Pobierz .NC')}</button>
+      <button class="btn ${app.ui.gcView === 'plot' ? 'primary' : ''}" data-act="gc-view">${app.ui.gcView === 'plot' ? '⌨ ' + t('Kod') : '◎ Backplot'}</button>
+      <button class="btn" data-act="sheet">🗒 ${t('Karta ustawcza')}</button>
     </div>
     ${app.ui.gcView === 'plot' ? previewHtml().replace('class="preview', 'class="preview tall') : `<div class="gc-wrap"><div class="gc" id="gc-text">${code}</div></div>`}`;
 }
@@ -318,15 +320,16 @@ export function render() {
   compute();
   const root = document.getElementById('app');
   const screens = { detal: screenDetal, ops: screenOps, tools: screenTools, gcode: screenGcode, calc: () => renderCalc(app), settings: () => renderSettings(app) };
+  document.documentElement.lang = app.lang || 'pl';
   root.innerHTML = `
     <header class="hdr">
       <span class="logo">CNC VPS</span>
-      <div class="seg"><button data-act="machine" data-m="lathe" class="${isLathe() ? 'on' : ''}">Tokarka</button><button data-act="machine" data-m="mill" class="${isLathe() ? '' : 'on'}">Frezarka</button></div>
-      <button class="icon-btn" data-act="theme" title="motyw">${app.theme === 'dark' ? '☀' : '☾'}</button>
-      <button class="icon-btn" data-act="proj-open" title="projekty">📂</button>
+      <div class="seg"><button data-act="machine" data-m="lathe" class="${isLathe() ? 'on' : ''}">${t('Tokarka')}</button><button data-act="machine" data-m="mill" class="${isLathe() ? '' : 'on'}">${t('Frezarka')}</button></div>
+      <button class="icon-btn" data-act="theme" title="${t('motyw')}">${app.theme === 'dark' ? '☀' : '☾'}</button>
+      <button class="icon-btn" data-act="proj-open" title="${t('projekty')}">📂</button>
     </header>
     <main class="screen" id="screen">${screens[app.screen]()}</main>
-    <nav class="nav">${NAV.map(([k, l, ic]) => `<button data-act="nav" data-s="${k}" class="${app.screen === k ? 'on' : ''}"><svg viewBox="0 0 24 24">${ic}</svg>${l}${k === 'gcode' && app.gc && app.gc.warnings.length ? `<span class="badge">${app.gc.warnings.length}</span>` : ''}</button>`).join('')}</nav>`;
+    <nav class="nav">${NAV.map(([k, l, ic]) => `<button data-act="nav" data-s="${k}" class="${app.screen === k ? 'on' : ''}"><svg viewBox="0 0 24 24">${ic}</svg>${t('nav|' + l)}${k === 'gcode' && app.gc && app.gc.warnings.length ? `<span class="badge">${app.gc.warnings.length}</span>` : ''}</button>`).join('')}</nav>`;
   drawPreview(false);
   if (app.screen === 'calc') bindCalc(app);
   if (app.screen === 'settings') bindSettings(app, render, toast);
@@ -362,6 +365,15 @@ export function toast(msg, action) {
   }
   document.body.appendChild(t);
   setTimeout(() => t.remove(), action ? 6000 : 2300);
+}
+/** Język z ustawień przeglądarki przy pierwszym uruchomieniu. */
+function detectLang() {
+  const l = (navigator.language || 'pl').slice(0, 2).toLowerCase();
+  return ['pl', 'en', 'es', 'de'].includes(l) ? l : 'en';
+}
+export function applyLang() {
+  setLang(app.lang || 'pl');
+  setCommentLang(app.gcLang && app.gcLang !== 'same' ? app.gcLang : (app.lang || 'pl'));
 }
 function buzz(ms = 8) { try { navigator.vibrate && navigator.vibrate(ms); } catch {} }
 
@@ -401,14 +413,14 @@ function onClick(e) {
     case 'nav': app.screen = b.dataset.s; app.ui.big = false; render(); break;
     case 'machine': app.machine = b.dataset.m; app.ui.big = false; render(); autosave(); break;
     case 'theme': app.theme = app.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = app.theme; storage.set('theme', app.theme); render(); break;
-    case 'post-import': case 'post-export': case 'post-delete': case 'post-reset': case 'ctrl-pick':
+    case 'post-import': case 'post-export': case 'post-delete': case 'post-reset': case 'ctrl-pick': case 'lang-pick':
       settingsAction(a, b, app, render, toast); break;
     case 'base': s.base = parseInt(b.dataset.i, 10); render(); break;
     case 'op-add': { const op = { id: ++app.opId, ...(isLathe() ? defaultLatheOp(b.dataset.type, s) : defaultMillOp(b.dataset.type, s)) }; s.ops.push(op); render(); setTimeout(() => document.querySelector(`[data-opid="${op.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50); break; }
     case 'op-del': {
       app.undo = { op: JSON.parse(JSON.stringify(s.ops[opIdx])), idx: opIdx, machine: app.machine };
       s.ops.splice(opIdx, 1); render();
-      toast('Usunięto operację', { label: 'Cofnij', act: 'op-undo' });
+      toast(t('Usunięto operację'), { label: t('Cofnij'), act: 'op-undo' });
       break;
     }
     case 'op-undo': {
@@ -426,12 +438,12 @@ function onClick(e) {
     case 'op-toggle': if (e.target.closest('button')) return; app.ui.collapsed[opId] = !app.ui.collapsed[opId]; render(); break;
     case 'prof-add': { const pr = s.ops[opIdx].profile; const last = pr[pr.length - 1]; pr.push({ x: last.x, z: last.z - 10, c: 0, r: 0 }); render(); break; }
     case 'prof-del': if (s.ops[opIdx].profile.length > 2) { s.ops[opIdx].profile.splice(parseInt(b.dataset.i, 10), 1); render(); } break;
-    case 'tools-preset': s.tools = isLathe() ? defaultLatheTools(s.material) : defaultMillTools(s.material); render(); toast('Preset narzędzi wczytany'); break;
+    case 'tools-preset': s.tools = isLathe() ? defaultLatheTools(s.material) : defaultMillTools(s.material); render(); toast(t('Preset narzędzi wczytany')); break;
     case 'pv-bp': app.ui.backplot = !app.ui.backplot; b.classList.toggle('on'); drawPreview(true); break;
     case 'pv-side': app.ui.side = !app.ui.side; b.classList.toggle('on'); drawPreview(false); break;
     case 'pv-fit': drawPreview(false); break;
     case 'pv-big': app.ui.big = !app.ui.big; document.getElementById('pv').classList.toggle('big', app.ui.big); b.textContent = app.ui.big ? '✕' : '⛶'; drawPreview(false); break;
-    case 'gc-copy': navigator.clipboard.writeText(app.gc.lines.join('\n')).then(() => toast('Skopiowano G-kod')); break;
+    case 'gc-copy': navigator.clipboard.writeText(app.gc.lines.join('\n')).then(() => toast(t('Skopiowano G-kod'))); break;
     case 'gc-share': exportNc(app, 'share'); break;
     case 'gc-download': exportNc(app, 'download'); break;
     case 'gc-view': app.ui.gcView = app.ui.gcView === 'plot' ? 'code' : 'plot'; render(); break;
@@ -446,35 +458,39 @@ function onClick(e) {
     }
     case 'proj-save': saveProject(); break;
     case 'proj-open': openProjects(); break;
-    case 'proj-new': if (confirm('Nowy projekt? Niezapisane zmiany przepadną.')) { app[app.machine] = isLathe() ? newLatheState() : newMillState(); app.projectId = null; app.projectName = ''; render(); } break;
-    case 'proj-load': { const p = storage.listProjects().find((x) => x.id === b.dataset.id); if (p) { app.machine = p.machine; app[p.machine] = p.state; app.projectId = p.id; app.projectName = p.name; closeModal(); render(); toast('Wczytano ' + p.name); } break; }
-    case 'proj-delete': if (confirm('Usunąć projekt?')) { storage.deleteProject(b.dataset.id); openProjects(); } break;
+    case 'proj-new': if (confirm(t('Nowy projekt? Niezapisane zmiany przepadną.'))) { app[app.machine] = isLathe() ? newLatheState() : newMillState(); app.projectId = null; app.projectName = ''; render(); } break;
+    case 'proj-load': { const p = storage.listProjects().find((x) => x.id === b.dataset.id); if (p) { app.machine = p.machine; app[p.machine] = p.state; app.projectId = p.id; app.projectName = p.name; closeModal(); render(); toast(t('Wczytano {name}', { name: p.name })); } break; }
+    case 'proj-delete': if (confirm(t('Usunąć projekt?'))) { storage.deleteProject(b.dataset.id); openProjects(); } break;
     case 'modal-close': closeModal(); break;
-    case 'export-json': { const blob = new Blob([JSON.stringify({ machine: app.machine, state: cur(), name: app.projectName }, null, 2)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = (app.projectName || 'projekt') + '.cncvps.json'; a.click(); break; }
+    case 'export-json': { const blob = new Blob([JSON.stringify({ machine: app.machine, state: cur(), name: app.projectName }, null, 2)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = (app.projectName || t('projekt')) + '.cncvps.json'; a.click(); break; }
     case 'import-json': document.getElementById('imp-file').click(); break;
   }
 }
 function saveProject() {
-  const name = prompt('Nazwa projektu:', app.projectName || (cur().title || (isLathe() ? 'Tokarka O' : 'Frezarka O') + cur().prog));
+  const name = prompt(t('Nazwa projektu:'), app.projectName || (cur().title || t(isLathe() ? 'Tokarka' : 'Frezarka') + ' O' + cur().prog));
   if (!name) return;
   app.projectId ??= uid(); app.projectName = name;
   storage.saveProject({ id: app.projectId, name, machine: app.machine, state: cur() });
-  toast('Zapisano'); render();
+  toast(t('Zapisano')); render();
 }
 function modal(html) { closeModal(); const m = document.createElement('div'); m.className = 'modal'; m.id = 'modal'; m.innerHTML = `<div>${html}</div>`; m.addEventListener('click', (e) => { if (e.target === m) closeModal(); }); document.body.appendChild(m); }
 function closeModal() { document.getElementById('modal')?.remove(); }
 function openProjects() {
   const list = storage.listProjects();
-  modal(`<div class="sec" style="margin-top:0">Projekty <span class="sp"></span><button class="btn sm" data-act="modal-close">zamknij</button></div>
-    ${list.length ? list.map((p) => `<div class="proj"><div class="pn"><b>${esc(p.name)}</b><small>${p.machine === 'lathe' ? 'tokarka' : 'frezarka'} · O${p.state.prog} · ${p.state.ops.length} op. · ${new Date(p.updated).toLocaleString('pl-PL')}</small></div><button class="btn sm primary" data-act="proj-load" data-id="${p.id}">otwórz</button><button class="btn sm danger" data-act="proj-delete" data-id="${p.id}">✕</button></div>`).join('') : '<div class="empty">Brak zapisanych projektów</div>'}
-    <div class="row" style="margin-top:12px"><button class="btn" data-act="export-json">⤓ Eksport JSON</button><button class="btn" data-act="import-json">⤒ Import JSON</button><input type="file" id="imp-file" accept=".json" hidden></div>`);
+  modal(`<div class="sec" style="margin-top:0">${t('Projekty')} <span class="sp"></span><button class="btn sm" data-act="modal-close">${t('zamknij')}</button></div>
+    ${list.length ? list.map((p) => `<div class="proj"><div class="pn"><b>${esc(p.name)}</b><small>${t(p.machine === 'lathe' ? 'tokarka' : 'frezarka')} · O${p.state.prog} · ${p.state.ops.length} op. · ${new Date(p.updated).toLocaleString(locale())}</small></div><button class="btn sm primary" data-act="proj-load" data-id="${p.id}">${t('otwórz')}</button><button class="btn sm danger" data-act="proj-delete" data-id="${p.id}">✕</button></div>`).join('') : `<div class="empty">${t('Brak zapisanych projektów')}</div>`}
+    <div class="row" style="margin-top:12px"><button class="btn" data-act="export-json">⤓ ${t('Eksport JSON')}</button><button class="btn" data-act="import-json">⤒ ${t('Import JSON')}</button><input type="file" id="imp-file" accept=".json" hidden></div>`);
   document.getElementById('imp-file').addEventListener('change', (e) => {
     const f = e.target.files[0]; if (!f) return;
-    f.text().then((t) => { const o = JSON.parse(t); if (o.state && o.machine) { app.machine = o.machine; app[o.machine] = o.state; app.projectId = null; app.projectName = o.name || f.name; closeModal(); render(); toast('Zaimportowano'); } });
+    f.text().then((t) => { const o = JSON.parse(t); if (o.state && o.machine) { app.machine = o.machine; app[o.machine] = o.state; app.projectId = null; app.projectName = o.name || f.name; closeModal(); render(); toast(t('Zaimportowano')); } });
   });
 }
 export function boot() {
   document.documentElement.dataset.theme = app.theme;
+  app.lang = storage.get('lang', detectLang());
+  app.gcLang = storage.get('gcLang', 'same');
+  app.applyLang = applyLang;
+  applyLang();
   const draft = storage.get('draft');
   if (draft && draft.lathe && draft.mill) { Object.assign(app, { machine: draft.machine, lathe: draft.lathe, mill: draft.mill, projectId: draft.projectId, projectName: draft.projectName || '' }); }
   app.opId = Math.max(0, ...app.lathe.ops.map((o) => o.id || 0), ...app.mill.ops.map((o) => o.id || 0));

@@ -9,6 +9,7 @@
 // Dzięki temu generatory (lathe.js / mill.js) nie znają konkretnej maszyny.
 
 import { ascii } from './calc.js';
+import { tg, t as tr } from '../i18n/index.js';
 
 export const POST_VERSION = 1;
 
@@ -28,8 +29,17 @@ export function tpl(lines, ctx) {
       }
       return String(v);
     });
-    if (!drop && s.trim() !== '') out.push(s.trim());
+    if (!drop && s.trim() !== '') out.push(translateComments(s.trim(), raw));
   }
+  return out;
+}
+
+/** Tłumaczy stałe komentarze szablonu (bez tokenów {…}) na język komentarzy G-kodu. */
+function translateComments(line, raw) {
+  if (!/\(/.test(raw)) return line;
+  const fixed = [...raw.matchAll(/\(([^){]*)\)/g)].map((m) => m[1]);
+  let out = line;
+  for (const c of fixed) out = out.replace('(' + c + ')', '(' + tg(c) + ')');
   return out;
 }
 
@@ -300,7 +310,7 @@ const HAAS_SL20T = {
     'G28 U0. W0.'
   ],
   toolChange: [
-    '(NARZEDZIE {TSTR} -- {TOOLDESC})',
+    '({TSTR} -- {TOOLDESC})',
     'G00 {TSTR}',
     'G50 S{MAXRPM} (MAX RPM)'
   ],
@@ -410,7 +420,7 @@ const HAAS_ST_NGC = {
     'G53 G00 X0. Z0. (POWROT W UKLADZIE MASZYNY)'
   ],
   toolChange: [
-    '(NARZEDZIE {TSTR} -- {TOOLDESC})',
+    '({TSTR} -- {TOOLDESC})',
     'G00 {TSTR}',
     'G50 S{MAXRPM} (MAX RPM)'
   ],
@@ -562,12 +572,12 @@ export function parseSpm(text, name) {
 export function postSummary(post) {
   const p = withDefaults(post);
   return [
-    p.machine === 'lathe' ? 'tokarka' : 'frezarka',
+    tr(p.machine === 'lathe' ? 'tokarka' : 'frezarka'),
     p.control === 'NGC' ? 'NGC' : p.control === 'HCC' ? 'Classic Control' : 'Fanuc',
     p.wcsExt ? 'G154 P1-P99' : 'G54-G59',
-    p.seq.on ? `numeracja ${p.seq.prefix}${p.seq.digits ? String(p.seq.start).padStart(p.seq.digits, '0') : p.seq.start}+${p.seq.inc}` : 'bez numeracji',
-    p.spaces ? 'ze spacjami' : 'bez spacji',
-    `${p.prec.xyz} miejsc dziesiętnych`,
-    p.cycles.rigid ? 'sztywne gwintowanie ' + p.cycles.rigid : null
+    p.seq.on ? tr('numeracja {n}', { n: `${p.seq.prefix}${p.seq.digits ? String(p.seq.start).padStart(p.seq.digits, '0') : p.seq.start}+${p.seq.inc}` }) : tr('bez numeracji'),
+    tr(p.spaces ? 'ze spacjami' : 'bez spacji'),
+    tr('{n} miejsc dziesiętnych', { n: p.prec.xyz }),
+    p.cycles.rigid ? tr('sztywne gwintowanie {c}', { c: p.cycles.rigid }) : null
   ].filter(Boolean).join(' · ');
 }

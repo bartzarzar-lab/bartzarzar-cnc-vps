@@ -2,6 +2,7 @@
 // backplot ścieżki narzędzia z G-kodu, pan/zoom (mysz, kółko, pinch).
 import { latheModel } from '../core/lathe.js';
 import { holePoints, BASES } from '../core/mill.js';
+import { t } from '../i18n/index.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const COL = {
@@ -176,7 +177,7 @@ export function renderLathe(svg, state, backplot, opts = {}) {
   text(svg, fs * 0.3, -pad * 0.65, 'X+', { fill: '#7ee787', size: fs });
   text(svg, -L / 2, D / 2 + pad * 0.7, `⌀${D} × L${L}`, { 'text-anchor': 'middle', size: fs });
   const xmin = Math.min(...Array.from(m.ro).filter((r) => r > 0)) * 2;
-  text(svg, -L / 2, -D / 2 - pad * 0.35, `min ⌀${xmin.toFixed(1)}`, { 'text-anchor': 'middle', size: fs * 0.85 });
+  text(svg, -L / 2, -D / 2 - pad * 0.35, `${t('min')} ⌀${xmin.toFixed(1)}`, { 'text-anchor': 'middle', size: fs * 0.85 });
   return m;
 }
 
@@ -227,7 +228,7 @@ export function renderMill(svg, state, backplot, opts = {}) {
   const fs = Math.max(X, Y) / 28;
   text(svg, pad * 0.75, fs * 0.35, 'X+', { fill: '#f85149', size: fs });
   text(svg, fs * 0.3, -pad * 0.75, 'Y+', { fill: '#7ee787', size: fs });
-  text(svg, -ox + X / 2, -(Y - oy) - pad * 0.4, `${X} × ${Y} × ${state.stock.z} mm  ·  G54 ${b.t}`, { 'text-anchor': 'middle', size: fs });
+  text(svg, -ox + X / 2, -(Y - oy) - pad * 0.4, `${X} × ${Y} × ${state.stock.z} mm  ·  ${String(state.wcs || 'G54').replace(/^G154P(\d+)$/, 'G154 P$1')} ${t(b.t)}`, { 'text-anchor': 'middle', size: fs });
   // numery otworów
   let hn = 1;
   for (const op of state.ops) if (op.type === 'drill' || op.type === 'tap') holePoints(op).forEach((q) => text(svg, q.x + sw * 3, -q.y - sw * 3, String(hn++), { size: fs * 0.6 }));
@@ -257,5 +258,5 @@ export function renderMillSide(svg, state, opts = {}) {
     el('rect', { x: x1, y: -depth, width: x2 - x1, height: Math.max(depth, sw * 2), fill: col, 'fill-opacity': op.type === 'face' ? 0.4 : 0.35, stroke: col, 'stroke-width': sw * 0.6 }, g);
   }
   el('line', { x1: -ox - pad, y1: 0, x2: X - ox + pad, y2: 0, stroke: '#7ee787', 'stroke-width': sw }, g);
-  text(svg, -ox + X / 2, pad * 0.8, `przekrój XZ — Z0 = góra detalu, grubość ${Z} mm`, { 'text-anchor': 'middle', size: X / 30 });
+  text(svg, -ox + X / 2, pad * 0.8, t('przekrój XZ — Z0 = góra detalu, grubość {z} mm', { z: Z }), { 'text-anchor': 'middle', size: X / 30 });
 }

@@ -1,5 +1,6 @@
 // Eksport programu .NC: Web Share API (Android/iOS), pobranie, lub Capacitor Filesystem + Share.
 import { toast } from './app.js';
+import { t } from '../i18n/index.js';
 
 function fileName(app) {
   const s = app[app.machine];
@@ -16,7 +17,7 @@ export async function exportNc(app, mode) {
       const { Share } = await import('@capacitor/share');
       const res = await Filesystem.writeFile({ path: name, data: text, directory: Directory.Cache, encoding: 'utf8' });
       if (mode === 'share') await Share.share({ title: name, url: res.uri });
-      else { await Filesystem.writeFile({ path: name, data: text, directory: Directory.Documents, encoding: 'utf8' }); toast('Zapisano w Dokumentach: ' + name); }
+      else { await Filesystem.writeFile({ path: name, data: text, directory: Directory.Documents, encoding: 'utf8' }); toast(t('Zapisano w Dokumentach: {name}', { name })); }
       return;
     }
     const file = new File([text], name, { type: 'text/plain' });
@@ -28,8 +29,8 @@ export async function exportNc(app, mode) {
     a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
     a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    toast('Pobrano ' + name);
+    toast(t('Pobrano {name}', { name }));
   } catch (e) {
-    if (e && e.name !== 'AbortError') { console.warn(e); toast('Nie udało się udostępnić — skopiuj kod'); }
+    if (e && e.name !== 'AbortError') { console.warn(e); toast(t('Nie udało się udostępnić — skopiuj kod')); }
   }
 }

@@ -2,6 +2,8 @@
 
 Mobilny kalkulator parametrów skrawania i generator G-kodu dla **Haas SL-20T** (tokarka, Classic Control 2006) i **Haas VF** (frezarka). Działa offline jako PWA, buduje się do Androida przez Capacitor.
 
+**Języki:** polski · English · Español · Deutsch — wybór w Ustawieniach, osobno dla interfejsu i dla komentarzy w G-kodzie.
+
 > ⚠ Wygenerowany program zawsze sprawdź w trybie graficznym maszyny (Graphics) i przejedź pierwszą sztukę ze zmniejszonym posuwem szybkim. Parametry Vc / f / fz są wartościami startowymi — dostosuj je do płytki, mocowania i sztywności.
 
 ## Funkcje
@@ -29,6 +31,11 @@ Mobilny kalkulator parametrów skrawania i generator G-kodu dla **Haas SL-20T** 
 
 **Karta ustawcza**
 - Jeden przycisk na ekranie G-kodu generuje dokument A4 do druku lub wysłania: nagłówek programu, rysunek poglądowy, tabela narzędzi z obrotami i posuwami, kolejność operacji z parametrami, uwagi generatora i miejsca na podpisy.
+
+**Języki**
+- Interfejs po polsku, angielsku, hiszpańsku i niemiecku; przy pierwszym uruchomieniu język dobierany z ustawień telefonu.
+- Osobny wybór języka **komentarzy w G-kodzie** (np. interfejs po polsku, komentarze po angielsku); komentarze zawsze ASCII, wielkimi literami, niemieckie umlauty jako AE/OE/UE.
+- Ostrzeżenia generatora, karta ustawcza, nazwy operacji, narzędzi i materiałów — wszystko w wybranym języku.
 
 **Wspólne**
 - **Backplot** — parser wygenerowanego G-kodu rysuje ścieżkę narzędzia (posuw / szybki / G70) — weryfikacja generatora niezależna od jego logiki.
@@ -79,11 +86,18 @@ Workflow `.github/workflows/android.yml` (ręcznie lub tag `v*`) buduje debug AP
 
 ```
 src/core/      logika bez DOM (testowana): materials, calc, tables, lathe, mill, posts, probe, backplot, storage
+src/i18n/      tłumaczenia: index.js (t / tg), en.js, es.js, de.js
 src/ui/        app (stan + ekrany), preview (SVG), calc-view, settings-view, setup-sheet, export
 tests/fixtures/ przykładowy .spm do testów importu
 tests/         vitest
 .github/       deploy (Pages) + android (APK)
 ```
+
+## Tłumaczenia
+
+Językiem źródłowym jest polski: tekst w kodzie jest jednocześnie kluczem (`t('Zapisz')`), a słowniki `src/i18n/en.js`, `es.js`, `de.js` mapują go na tłumaczenie. Brak wpisu = polski oryginał, więc nic się nie wysypie. Teksty w G-kodzie idą przez `tg()` (język komentarzy), interfejs przez `t()`.
+
+Dodając nowy tekst: owiń go w `t()` / `tg()`, dopisz ten sam klucz do trzech słowników. Testy pilnują, żeby słowniki miały identyczne klucze i zmienne `{…}`, a generatory nie używały tekstów spoza słownika. W przeglądarce `?i18n-debug` + `window.__i18n.missingKeys()` pokazuje braki w interfejsie.
 
 ## Plan rozwoju
 - podgląd 3D (bryła obrotowa / bryła frezowana, three.js),

@@ -159,3 +159,10 @@ table.tbl td{padding:4px;border-bottom:1px solid color-mix(in srgb,var(--border)
   .screen{padding-left:20px;padding-right:20px}
   .preview svg{height:300px}
 }
+
+.lang-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.lang-grid button{border:1px solid var(--border);background:var(--panel2);color:var(--text);border-radius:var(--r);padding:8px 4px;display:flex;flex-direction:column;align-items:center;gap:2px;min-height:52px}
+.lang-grid button b{font-family:var(--mono);font-size:14px;letter-spacing:.04em}
+.lang-grid button span{font-size:11px;color:var(--muted)}
+.lang-grid button.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,transparent)}
+.lang-grid button.on b{color:var(--accent)}

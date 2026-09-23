@@ -11,6 +11,7 @@
 
 import { ascii } from './calc.js';
 import { probeWcsValue, withDefaults } from './posts.js';
+import { t as tr, tg } from '../i18n/index.js';
 
 export const PROBE_OPS = {
   pbore:   { A: 1,  label: 'Otwór',        full: 'Pomiar otworu / bore',            color: '#40c8d8', needs: ['d'] },
@@ -59,19 +60,19 @@ export function probeBlock(op, state, postIn) {
   const L = [], W = [];
   const macro = (post.probe && post.probe.macro) || 'P9023';
   const S = probeWcsValue(state.wcs || 'G54');
-  const C = (t) => `(${ascii(t)})`;
+  const C = (s, v) => `(${ascii(tg(s, v))})`;
 
   if (!post.probe) {
-    W.push(`Post „${post.name}” nie ma zdefiniowanej sondy — bloki wygenerowano wg schematu Renishaw EasySet, sprawdź je na maszynie`);
+    W.push(tr('Post „{p}” nie ma zdefiniowanej sondy — bloki wygenerowano wg schematu Renishaw EasySet, sprawdź je na maszynie', { p: post.name }));
   }
 
-  L.push(C(`---- POMIAR: ${d.full} ----`));
-  L.push(C(`wynik zapisywany do ukladu ${wcsLabel(state.wcs)} jako S${S}`));
+  L.push(C('---- POMIAR: {name} ----', { name: tg(d.full) }));
+  L.push(C('wynik zapisywany do układu {w} jako S{s}', { w: wcsLabel(state.wcs), s: S }));
 
   // dojazd: XY nad element, potem Z na wysokość pomiaru
   L.push(`${K.rapid || 'G00'} ${K.abs || 'G90'} X${f3(op.sx)} Y${f3(op.sy)}`);
   L.push(`${K.rapid || 'G00'} Z${f3((op.sz || 0) + (op.approach || 10))} ${C('dojazd nad element')}`);
-  if (op.type !== 'psurfz') L.push(`${K.rapid || 'G00'} Z${f3(op.sz)} ${C('wysokosc pomiaru')}`);
+  if (op.type !== 'psurfz') L.push(`${K.rapid || 'G00'} Z${f3(op.sz)} ${C('wysokość pomiaru')}`);
 
   // wywołanie makra
   const args = [`A${d.A}.`];
@@ -86,25 +87,27 @@ export function probeBlock(op, state, postIn) {
   L.push(`${K.rapid || 'G00'} Z${f3((op.sz || 0) + (op.approach || 10))}`);
 
   // walidacja
-  if (d.needs.includes('d') && !(op.d > 0)) W.push(`${d.full}: podaj nominalną średnicę`);
-  if (d.needs.includes('x') && !(op.x > 0)) W.push(`${d.full}: podaj nominalną szerokość w X`);
-  if (d.needs.includes('y') && !(op.y > 0)) W.push(`${d.full}: podaj nominalną szerokość w Y`);
-  if (op.update === false) W.push(`${d.full}: wynik NIE jest zapisywany do układu (brak S) — tylko odczyt`);
+  const nm = tr(d.full);
+  if (d.needs.includes('d') && !(op.d > 0)) W.push(tr('{name}: podaj nominalną średnicę', { name: nm }));
+  if (d.needs.includes('x') && !(op.x > 0)) W.push(tr('{name}: podaj nominalną szerokość w X', { name: nm }));
+  if (d.needs.includes('y') && !(op.y > 0)) W.push(tr('{name}: podaj nominalną szerokość w Y', { name: nm }));
+  if (op.update === false) W.push(tr('{name}: wynik NIE jest zapisywany do układu (brak S) — tylko odczyt', { name: nm }));
   return { lines: L, warnings: W };
 }
 
 /** Nagłówek sekcji pomiarowej — wspólne ostrzeżenia na początku programu. */
 export function probeHeader(state, postIn) {
   const post = withDefaults(postIn);
-  const C = (t) => `(${ascii(t)})`;
+  const C = (s, v) => `(${ascii(tg(s, v))})`;
+  const W = (s) => `(! ${ascii(tg(s))} !)`;
   return [
     C('==== SEKCJA POMIAROWA - SONDA ===='),
-    '(! SPRAWDZ KALIBRACJE SONDY I KOREKTOR DLUGOSCI !)',
-    '(! WYMIARY W MM - DOKUMENTACJA HAAS PODAJE PRZYKLADY W CALACH !)',
+    W('sprawdź kalibrację sondy i korektor długości'),
+    W('wymiary w mm - dokumentacja Haas podaje przykłady w calach'),
     post.control === 'NGC'
-      ? C('sterowanie ngc - uklady rozszerzone zapisywane jako S154.nn')
-      : C('sterowanie classic control - uklad zapisywany jako S54.'),
-    C('pakiet easyset/wips: jedno makro G65 P9023, typ cyklu w parametrze A'),
-    '(! INSPECTION PLUS O98XX MA INNE ZNACZENIE S: S1=G54 !)'
+      ? C('sterowanie NGC - układy rozszerzone zapisywane jako S154.nn')
+      : C('sterowanie Classic Control - układ zapisywany jako S54.'),
+    C('pakiet EasySet/WIPS: jedno makro G65 P9023, typ cyklu w parametrze A'),
+    W('Inspection Plus O98xx ma inne znaczenie S: S1=G54')
   ];
 }

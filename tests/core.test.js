@@ -6,6 +6,7 @@ import { generateMill, defaultMillTools, defaultMillOp, holePoints } from '../sr
 import { parseGcode } from '../src/core/backplot.js';
 import { BUILTIN_POSTS, getPost, parseSpm, tpl, finalize, withDefaults, wcsOptions, probeWcsValue } from '../src/core/posts.js';
 import { readFileSync } from 'node:fs';
+import { DICTS, setLang, setCommentLang, trackMissing, missingKeys, tIn } from '../src/i18n/index.js';
 
 describe('calc', () => {
   it('rpm z Vc', () => {
@@ -252,5 +253,70 @@ describe('pomiar sondą', () => {
     const out = generateMill(probeState('pbore'), getPost('haas-vf-classic', 'mill')).lines.join('\n');
     expect(out).toMatch(/T20 M06/);
     expect(out).toMatch(/G43 H20/);
+  });
+});
+
+describe('tłumaczenia', () => {
+  const LANGS_ALL = ['en', 'es', 'de'];
+  const ph = (s) => (s.match(/\{(\w+)\}/g) || []).sort().join(',');
+  it('słowniki en/es/de mają te same klucze', () => {
+    const base = Object.keys(DICTS.en).sort();
+    for (const l of ['es', 'de']) expect(Object.keys(DICTS[l]).sort()).toEqual(base);
+  });
+  it('każde tłumaczenie ma te same zmienne {…} co oryginał', () => {
+    for (const l of LANGS_ALL) for (const [k, v] of Object.entries(DICTS[l])) expect(ph(v), `${l}: ${k}`).toBe(ph(k));
+  });
+  it('żadne tłumaczenie nie jest puste', () => {
+    for (const l of LANGS_ALL) for (const [k, v] of Object.entries(DICTS[l])) expect(v.trim().length, `${l}: ${k}`).toBeGreaterThan(0);
+  });
+  it('generatory nie używają tekstów spoza słownika (tokarka i frezarka, wszystkie operacje)', () => {
+    trackMissing(true);
+    setLang('de'); setCommentLang('de');
+    for (const post of BUILTIN_POSTS) {
+      if (post.machine === 'lathe') {
+        const s = latheState(['face', 'rough', 'finish', 'turn', 'taper', 'bore', 'groove', 'thread', 'drill', 'cutoff']);
+        generateLathe(s, post);
+      } else {
+        const s = millState(['face', 'prof', 'circ', 'pock', 'cpock', 'slot', 'drill', 'tap', 'bore', 'chamfer', 'pbore', 'pcorner', 'psurfz']);
+        generateMill(s, post);
+      }
+    }
+    const miss = missingKeys();
+    trackMissing(false); setLang('pl'); setCommentLang('pl');
+    expect(miss).toEqual([]);
+  });
+  it('komentarze w G-kodzie są ASCII, bez zagnieżdżonych nawiasów, w każdym języku', () => {
+    for (const l of ['pl', ...LANGS_ALL]) {
+      setCommentLang(l);
+      const lines = [
+        ...generateLathe(latheState(['face', 'rough', 'finish', 'thread', 'cutoff']), getPost('haas-st-ngc', 'lathe')).lines,
+        ...generateMill(millState(['face', 'pock', 'drill', 'tap', 'chamfer', 'pbore']), getPost('haas-vf-ngc', 'mill')).lines
+      ];
+      for (const line of lines) {
+        expect(line, `${l}: ${line}`).toMatch(/^[\x20-\x7E]*$/);
+        expect(line).not.toMatch(/\([^)]*\(/);
+      }
+    }
+    setCommentLang('pl');
+  });
+  it('komentarze po niemiecku: umlauty jako AE/OE/UE, kody G bez zmian', () => {
+    setCommentLang('de');
+    const out = generateMill(millState(['face', 'drill']), getPost('haas-vf-classic', 'mill')).lines.join('\n');
+    setCommentLang('pl');
+    expect(out).toMatch(/PLANFRAESEN/);
+    expect(out).toMatch(/PROGRAMMENDE/);
+    expect(out).toMatch(/G83 Z-15\.000 Q4\.000 R2\.000/);
+  });
+  it('komentarze po angielsku i ostrzeżenia w języku interfejsu', () => {
+    setCommentLang('en'); setLang('es');
+    const st = millState(['pock']); st.ops[0].x2 = st.ops[0].x1 + 5;
+    const r = generateMill(st, getPost('haas-vf-classic', 'mill'));
+    setCommentLang('pl'); setLang('pl');
+    expect(r.lines.join('\n')).toMatch(/END OF PROGRAM/);
+    expect(r.warnings.some((w) => /más estrecha que la fresa/.test(w))).toBe(true);
+  });
+  it('brak tłumaczenia wraca do polskiego oryginału', () => {
+    expect(tIn('en', 'tekst którego nie ma w słowniku')).toBe('tekst którego nie ma w słowniku');
+    expect(tIn('de', 'Wczytano {name}', { name: 'X' })).toBe('X geladen');
   });
 });

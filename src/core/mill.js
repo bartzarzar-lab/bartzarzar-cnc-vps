@@ -3,6 +3,7 @@ import { getMaterial } from './materials.js';
 import { rpm as calcRpm, vfMill, boltCircle, ascii } from './calc.js';
 import { getPost, withDefaults, tpl, finalize, wcsCode } from './posts.js';
 import { PROBE_OPS, isProbeOp, probeBlock, probeHeader, defaultProbeOp } from './probe.js';
+import { t as tr, tg } from '../i18n/index.js';
 
 export const MILL_TOOL_TYPES = [
   'Frez walcowy', 'Frez kulowy', 'Frez czołowy', 'Frez fazowy 90°', 'Frez tarczowy',
@@ -93,12 +94,12 @@ export function holePoints(op) {
 function millToolList(state, maxR) {
   const used = [...new Set(state.ops.map((o) => o.tool))].sort((a, b) => a - b);
   if (!used.length) return [];
-  const out = ['(---- LISTA NARZEDZI ----)'];
+  const out = [`(---- ${ascii(tg('LISTA NARZĘDZI'))} ----)`];
   for (const no of used) {
     const t = state.tools[no - 1] || {};
     const n = calcRpm(t.vc || 200, t.d || 6, maxR);
-    const ops = state.ops.filter((o) => o.tool === no).map((o) => MILL_OPS[o.type].label).join(', ');
-    out.push(`(T${String(no).padStart(2, '0')} D${t.d || '?'} ${ascii(t.type || '?')} | S${n} F${Math.round(vfMill(t.fz || 0.05, t.z || 2, n))} | ${ascii(ops)})`);
+    const ops = state.ops.filter((o) => o.tool === no).map((o) => tg(MILL_OPS[o.type].label)).join(', ');
+    out.push(`(T${String(no).padStart(2, '0')} D${t.d || '?'} ${ascii(tg(t.type || '?'))} | S${n} F${Math.round(vfMill(t.fz || 0.05, t.z || 2, n))} | ${ascii(ops)})`);
   }
   out.push('(-----------------------)');
   return out;
@@ -107,7 +108,7 @@ function millToolList(state, maxR) {
 export function generateMill(state, postIn) {
   const L = [], W = [];
   const p = (...a) => L.push(a.join(''));
-  const C = (t) => `(${ascii(t)})`;
+  const C = (s, v) => `(${ascii(tg(s, v))})`;
   const post = withDefaults(postIn || getPost(state.post, 'mill', state.customPosts));
   const K = post.codes, CY = post.cycles;
   const mat = getMaterial(state.material, state.customMaterials);
@@ -117,7 +118,7 @@ export function generateMill(state, postIn) {
   const pn = String(state.prog || '2001').padStart(4, '0');
   const base = BASES[state.base ?? 6];
   const WCS = wcsCode(state.wcs || 'G54', post);
-  if (/^G154/.test(String(state.wcs || '')) && !post.wcsExt) W.push(`Układ ${state.wcs} wymaga sterowania NGC — użyto G54`);
+  if (/^G154/.test(String(state.wcs || '')) && !post.wcsExt) W.push(tr('Układ {w} wymaga sterowania NGC — użyto G54', { w: state.wcs }));
   let time = 0, tcs = 0, last = -1;
   let cur = { x: 0, y: 0, z: SZ };
   const move = (x, y, z, vf) => { // liczy czas i pamięta pozycję
@@ -130,9 +131,9 @@ export function generateMill(state, postIn) {
   const ARC = (g, x, y, i, j, vf, z) => { p(`${g === 2 ? K.cw : K.ccw} X${f3(x)} Y${f3(y)} I${f3(i)} J${f3(j)}` + (z != null ? ` Z${f3(z)}` : '') + (vf ? ` F${Math.round(vf)}` : '')); const r = Math.hypot(i, j); time += (2 * Math.PI * r) / (vf || 1000); cur = { x, y, z: z ?? cur.z }; };
 
   tpl(post.header, {
-    START: post.startChar, PROG: pn, HEAD: ascii(post.name + ' -- ' + mat.name),
+    START: post.startChar, PROG: pn, HEAD: ascii(post.name + ' -- ' + tg(mat.name)),
     TITLE: state.title ? ascii(state.title) : '',
-    STOCK: ascii(`DETAL: X${X} x Y${Y} x Z${Z} mm  BAZA ${WCS}: ${base.t}`),
+    STOCK: ascii(tg('DETAL: X{x} x Y{y} x Z{z} mm  BAZA {w}: {b}', { x: X, y: Y, z: Z, w: WCS, b: tg(base.t) })),
     GEN: ascii(`CNC VPS ${new Date().toISOString().slice(0, 10)} / ${WCS} / ${K.plane} / MM`),
     WCS, TOOLLIST: post.toolList ? millToolList(state, maxR).join('\n') : ''
   }).forEach((l) => l.split('\n').forEach((x) => p(x)));
@@ -145,13 +146,13 @@ export function generateMill(state, postIn) {
     if (isProbeOp(op.type)) {
       const tno = String(op.tool).padStart(2, '0');
       p('');
-      p(C(`==== OP ${i + 1}: ${MILL_OPS[op.type].full} ====`));
+      p(C('==== OP {n}: {name} ====', { n: i + 1, name: tg(MILL_OPS[op.type].full) }));
       if (op.tool !== last) {
         if (last !== -1) { p(K.spinOff); if (cool) p(K.coolOff); p('G28 G91 Z0.'); p(K.abs); p(K.optStop + ' ' + C('stop opcjonalny')); p(''); tcs++; }
-        p(C(`T${tno} SONDA POMIAROWA`));
+        p(C('T{t} SONDA POMIAROWA', { t: tno }));
         p(`T${tno} ${K.toolChange || 'M06'}`);
         p(`${WCS} ${K.rapid} X0. Y0.`);
-        p(`${K.lenComp} H${tno} Z${f2(SZ)} ${C('komp. dlugosci sondy')}`);
+        p(`${K.lenComp} H${tno} Z${f2(SZ)} ${C('komp. długości sondy')}`);
         last = op.tool; cur = { x: 0, y: 0, z: SZ };
       }
       const pb = probeBlock(op, state, post);
@@ -167,21 +168,21 @@ export function generateMill(state, postIn) {
     const tno = String(op.tool).padStart(2, '0');
     const zt = op.zt ?? -5, ap = op.ap || 1;
     p('');
-    p(C(`==== OP ${i + 1}: ${MILL_OPS[op.type].full} ====`));
+    p(C('==== OP {n}: {name} ====', { n: i + 1, name: tg(MILL_OPS[op.type].full) }));
     if (op.tool !== last) {
       if (last !== -1) { p(K.spinOff); if (cool) p(K.coolOff); p('G28 G91 Z0.'); p(K.abs); p(K.optStop + ' ' + C('stop opcjonalny')); p(''); tcs++; }
       tpl(post.toolChange, {
         TT: tno, S: n, SAFEZ: f2(SZ), MAXRPM: maxR,
         TOOLDIA: td, TOOLLEN: t.len || '',
-        TOOLDESC: ascii(`${t.type || '?'} D${td} z${tz} Vc${Math.round(tvc)} fz${tfz}`), WCS
+        TOOLDESC: ascii(`${tg(t.type || '?')} D${td} z${tz} Vc${Math.round(tvc)} fz${tfz}`), WCS
       }).forEach((l) => p(l));
       last = op.tool; cur = { x: 0, y: 0, z: SZ };
     } else p(`S${n} ${K.spinCW}`);
     if (cool) p(cool);
-    p(C(`Vf = ${tfz} x ${tz} x ${n} = ${vf} mm/min`));
-    if (!t.type) W.push(`OP ${i + 1}: narzędzie T${tno} jest puste w magazynie`);
-    if (td > 0 && (op.type === 'pock') && Math.min(Math.abs(op.x2 - op.x1), Math.abs(op.y2 - op.y1)) < td) W.push(`OP ${i + 1}: kieszeń węższa niż frez D${td}`);
-    if (zt < -Z) W.push(`OP ${i + 1}: Z${zt} głębiej niż detal (${Z} mm) — przewiercenie stołu?`);
+    p(`(Vf = ${tfz} X ${tz} X ${n} = ${vf} MM/MIN)`);
+    if (!t.type) W.push(tr('OP {n}: narzędzie T{t} jest puste w magazynie', { n: i + 1, t: tno }));
+    if (td > 0 && (op.type === 'pock') && Math.min(Math.abs(op.x2 - op.x1), Math.abs(op.y2 - op.y1)) < td) W.push(tr('OP {n}: kieszeń węższa niż frez D{d}', { n: i + 1, d: td }));
+    if (zt < -Z) W.push(tr('OP {n}: Z{zt} głębiej niż detal ({z} mm) — przewiercenie stołu?', { n: i + 1, zt, z: Z }));
 
     const zPasses = (target) => { const out = []; const nz = Math.max(1, Math.ceil(Math.abs(target) / ap)); for (let k = 1; k <= nz; k++) out.push(Math.max(target, -(k * ap))); return out; };
 
@@ -191,7 +192,7 @@ export function generateMill(state, postIn) {
         const ny = Math.max(1, Math.ceil(Math.abs(op.y2 - op.y1) / step));
         const sy = (op.y2 - op.y1) / ny;
         const xa = op.x1 - td / 2 - 2, xb = op.x2 + td / 2 + 2;
-        p(C(`planowanie ae=${f2(step)} ap=${ap} przejsc=${ny + 1}`));
+        p(C('planowanie ae={ae} ap={ap} przejść={n}', { ae: f2(step), ap, n: ny + 1 }));
         G0(xa, op.y1, null); G0(null, null, RZ);
         G1(null, null, zt, vfz);
         for (let k = 0; k <= ny; k++) {
@@ -205,10 +206,10 @@ export function generateMill(state, postIn) {
       case 'prof': {
         const a = Math.min(op.x1, op.x2), b = Math.min(op.y1, op.y2), c = Math.max(op.x1, op.x2), d = Math.max(op.y1, op.y2);
         const comp = op.comp || 41, r = op.r || 0;
-        p(C(`profil ${a},${b} -> ${c},${d}  G${comp}  R${r}`));
+        p(C('profil {a},{b} -> {c},{d}  G{g}  R{r}', { a, b, c, d, g: comp, r }));
         G0(a - td, b - td, null); G0(null, null, RZ);
         for (const z of zPasses(zt)) {
-          p(C(`-- Z${f2(z)} --`));
+          p(C('-- Z{z} --', { z: f2(z) }));
           G1(null, null, z, vfz);
           p(`${comp === 41 ? K.compL : K.compR} D${tno} ${K.lin} X${f3(a)} Y${f3(b + r)} F${vf}`); move(a, b + r, null, vf);
           if (r > 0) {
@@ -224,10 +225,10 @@ export function generateMill(state, postIn) {
       }
       case 'circ': {
         const comp = op.comp || 41, { cx, cy, r } = op;
-        p(C(`okrag Xc${cx} Yc${cy} R${r} G${comp}`));
+        p(C('okrąg Xc{x} Yc{y} R{r} G{g}', { x: cx, y: cy, r, g: comp }));
         G0(cx - r - td, cy, null); G0(null, null, RZ);
         for (const z of zPasses(zt)) {
-          p(C(`-- Z${f2(z)} --`));
+          p(C('-- Z{z} --', { z: f2(z) }));
           G1(null, null, z, vfz);
           p(`${comp === 41 ? K.compL : K.compR} D${tno} ${K.lin} X${f3(cx - r)} Y${f3(cy)} F${vf}`); move(cx - r, cy, null, vf);
           ARC(comp === 41 ? 2 : 3, cx - r, cy, r, 0, vf);
@@ -241,17 +242,17 @@ export function generateMill(state, postIn) {
         const c = Math.max(op.x1, op.x2) - td / 2, d = Math.max(op.y1, op.y2) - td / 2;
         const sw = td * (op.step || 0.6);
         const nx = Math.max(1, Math.ceil((c - a) / sw));
-        p(C(`kieszen ${op.x1},${op.y1} -> ${op.x2},${op.y2}  step ${f2(sw)}  wejscie ${op.entry === 'ramp' ? 'rampa' : 'pionowe'}`));
+        p(C(op.entry === 'ramp' ? 'kieszeń {a},{b} -> {c},{d}  krok {s}  wejście rampą' : 'kieszeń {a},{b} -> {c},{d}  krok {s}  wejście pionowe', { a: op.x1, b: op.y1, c: op.x2, d: op.y2, s: f2(sw) }));
         G0(a, b, null); G0(null, null, RZ);
         let zPrev = 0;
         for (const z of zPasses(zt)) {
-          p(C(`-- Z${f2(z)} --`));
+          p(C('-- Z{z} --', { z: f2(z) }));
           if (op.entry === 'ramp') {
             const depth = zPrev - z;
             const rampLen = Math.max(1, Math.min(c - a, depth / Math.tan((3 * Math.PI) / 180)));
             const ang = (Math.atan(depth / rampLen) * 180) / Math.PI;
-            if (ang > 10) W.push(`OP ${i + 1}: rampa ${ang.toFixed(1)}° — kieszeń za krótka, zmniejsz ap`);
-            G1(a + rampLen, null, z, vfz, ' ' + C(`rampa ${ang.toFixed(1)} st`)); G1(a, null, null, vf);
+            if (ang > 10) W.push(tr('OP {n}: rampa {a}° — kieszeń za krótka, zmniejsz ap', { n: i + 1, a: ang.toFixed(1) }));
+            G1(a + rampLen, null, z, vfz, ' ' + C('rampa {a} st', { a: ang.toFixed(1) })); G1(a, null, null, vf);
           } else G1(null, null, z, vfz);
           for (let k = 0; k <= nx; k++) {
             const x = Math.min(a + k * sw, c);
@@ -267,11 +268,11 @@ export function generateMill(state, postIn) {
       }
       case 'cpock': {
         const rMax = op.d / 2 - td / 2, sw = td * (op.step || 0.5);
-        if (rMax <= 0) { W.push(`OP ${i + 1}: kieszeń ⌀${op.d} mniejsza od frezu D${td}`); break; }
-        p(C(`kieszen okragla D${op.d} spirala krok ${f2(sw)}`));
+        if (rMax <= 0) { W.push(tr('OP {n}: kieszeń ⌀{d} mniejsza od frezu D{t}', { n: i + 1, d: op.d, t: td })); break; }
+        p(C('kieszeń okrągła D{d} spirala krok {s}', { d: op.d, s: f2(sw) }));
         G0(op.cx, op.cy, null); G0(null, null, RZ);
         for (const z of zPasses(zt)) {
-          p(C(`-- Z${f2(z)} helisa --`));
+          p(C('-- Z{z} helisa --', { z: f2(z) }));
           const rh = Math.min(rMax, td * 0.45);
           G1(op.cx + rh, null, null, vfz);
           ARC(3, op.cx + rh, op.cy, -rh, 0, vfz, z);
@@ -284,7 +285,7 @@ export function generateMill(state, postIn) {
         break;
       }
       case 'slot': {
-        p(C(`rowek ${op.x1},${op.y1} -> ${op.x2},${op.y2} szer.${td}`));
+        p(C('rowek {a},{b} -> {c},{d} szer.{w}', { a: op.x1, b: op.y1, c: op.x2, d: op.y2, w: td }));
         G0(op.x1, op.y1, null); G0(null, null, RZ);
         let flip = false;
         for (const z of zPasses(zt)) {
@@ -298,7 +299,7 @@ export function generateMill(state, postIn) {
       case 'drill': {
         const pts = holePoints(op), fd = Math.round((t.fz || 0.1) * tz * n);
         const dCyc = op.peck > 0 ? (op.chip ? CY.chip : CY.peck) : CY.drill;
-        p(C(`wiercenie D${td} Z${zt} ${pts.length} otw. ${op.peck > 0 ? dCyc + ' peck ' + op.peck : dCyc}`));
+        p(C('wiercenie D{d} Z{z} {n} otw. {c}', { d: td, z: zt, n: pts.length, c: op.peck > 0 ? dCyc + ' peck ' + op.peck : dCyc }));
         G0(pts[0].x, pts[0].y, null); G0(null, null, 5);
         p(`${dCyc} Z${f3(zt)}${op.peck > 0 ? ` Q${f3(op.peck)}` : ''} R2. F${fd} ${CY.ret}`);
         pts.forEach((q, k) => { if (k) p(`X${f3(q.x)} Y${f3(q.y)}`); time += (Math.abs(zt) + 2) / fd * (op.peck > 0 ? 1.6 : 1) + 0.03; });
@@ -307,8 +308,8 @@ export function generateMill(state, postIn) {
       }
       case 'tap': {
         const pts = holePoints(op), tn = Math.min(n, 800), tvf = Math.round(tn * op.pitch);
-        p(C(`gwintowanie M${td}x${op.pitch} Z${zt} ${pts.length} otw.`));
-        p(`(! F = n x skok = ${tn} x ${op.pitch} = ${tvf} !)`);
+        p(C('gwintowanie M{d}x{p} Z{z} {n} otw.', { d: td, p: op.pitch, z: zt, n: pts.length }));
+        p(`(! ${ascii(tg('F = n x skok = {n} x {p} = {f}', { n: tn, p: op.pitch, f: tvf }))} !)`);
         p(K.spinOff); p(`S${tn} ${K.spinCW}`);
         if (CY.rigid) p(`${CY.rigid} S${tn} ${C('sztywne gwintowanie')}`);
         G0(pts[0].x, pts[0].y, null); G0(null, null, 5);
@@ -318,7 +319,7 @@ export function generateMill(state, postIn) {
         break;
       }
       case 'bore': {
-        p(C(`wytaczanie D${op.dia} Z${zt} ${op.cycle}`));
+        p(C('wytaczanie D{d} Z{z} {c}', { d: op.dia, z: zt, c: op.cycle }));
         G0(op.cx, op.cy, null); G0(null, null, 5);
         if (op.cycle === 'G76') p(`${CY.boreOrient} Z${f3(zt)} R2. I0.5 F${Math.round(vf * 0.5)} ${C('wytaczanie z odsunieciem')}`);
         else p(`${CY.bore} Z${f3(zt)} R2. F${Math.round(vf * 0.5)}`);
@@ -330,12 +331,12 @@ export function generateMill(state, postIn) {
         const a = Math.min(op.x1, op.x2), b = Math.min(op.y1, op.y2), c = Math.max(op.x1, op.x2), d = Math.max(op.y1, op.y2);
         const zc = (op.zt || 0) - op.c - 0.5; // wierzchołek frezu 0.5 mm poniżej fazy
         const off = op.c + 0.5 + 0.5; // odsunięcie środka frezu = połowa szer. w miejscu styku (90°)
-        p(C(`faza ${op.c}x45 kontur ${a},${b}-${c},${d}  (frez 90 st, wierzcholek Z${f2(zc)})`));
+        p(C('faza {c}x45 kontur {a},{b}-{x},{y}  frez 90 st, wierzchołek Z{z}', { c: op.c, a, b, x: c, y: d, z: f2(zc) }));
         G0(a - off - 5, b - off, null); G0(null, null, RZ);
         G1(null, null, zc, vfz);
         G1(a - off, b - off, null, vf); G1(null, d + off, null, vf); G1(c + off, null, null, vf); G1(null, b - off, null, vf); G1(a - off, null, null, vf);
         G0(null, null, SZ);
-        W.push(`OP ${i + 1}: faza liczona dla frezu 90° z wierzchołkiem ostrym — sprawdź D w miejscu styku`);
+        W.push(tr('OP {n}: faza liczona dla frezu 90° z wierzchołkiem ostrym — sprawdź D w miejscu styku', { n: i + 1 }));
         break;
       }
     }
